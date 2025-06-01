@@ -12,11 +12,13 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import { useSnapshot } from 'valtio';
 import { battlemapStore, battlemapActions, VerticalBiasComputationMode } from '../../../store';
-import { isometricSpriteManager } from '../../../game/managers/IsometricSpriteManager';
+import { isometricSpriteManager, IsometricDirection } from '../../../game/managers/IsometricSpriteManager';
 import { useTileEditor } from '../../../hooks/battlemap';
 
 interface IsometricConfigurationPanelProps {
@@ -26,6 +28,7 @@ interface IsometricConfigurationPanelProps {
 /**
  * Configuration panel for isometric editor settings
  * PERFORMANCE OPTIMIZED: Only subscribes to editor controls and relevant view settings
+ * NOW SUPPORTS: Both blocks and walls with complete separation
  */
 const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = ({ isLocked }) => {
   // PERFORMANCE FIX: Use controlled snapshots to minimize re-renders
@@ -38,6 +41,9 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
   const spriteScale = viewSnap.spriteScale;
   const verticalBiasComputationMode = viewSnap.verticalBiasComputationMode;
 
+  // NEW: Wall mode state
+  const isWallMode = isometricEditor.wallMode;
+
   // Get utilities from useTileEditor hook
   const {
     clearAllTiles,
@@ -45,13 +51,85 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
     initializeGrid,
   } = useTileEditor();
 
-  // Get current sprite settings for display - FIXED: Use reactive store snapshot instead of action function
-  const currentSpriteSettings = isometricEditor.selectedSpriteName 
+  // Get current BLOCK sprite settings for display (UNCHANGED)
+  const currentSpriteSettings = isometricEditor.selectedSpriteName && !isWallMode
     ? isometricEditor.spriteTypeSettings[isometricEditor.selectedSpriteName]
     : null;
 
-  // NEW: Handle manual vertical bias changes
+  // NEW: Get current WALL sprite settings for display (SAME SYSTEM AS BLOCKS NOW)
+  const currentWallSettings = isometricEditor.selectedSpriteName && isWallMode
+    ? isometricEditor.wallPositioningSettings[isometricEditor.selectedSpriteName]
+    : null;
+
+  // NEW: Wall mode toggle handler
+  const handleWallModeToggle = () => {
+    battlemapActions.toggleWallMode();
+  };
+
+  // NEW: Wall-specific handlers (NOW USE SAME SYSTEM AS BLOCKS)
+  const handleWallMarginChange = (marginType: 'up' | 'down' | 'left' | 'right', value: number) => {
+    if (!isWallMode || !isometricEditor.selectedSpriteName) return;
+    
+    const currentSettings = battlemapActions.getWallPositioningSettings(isometricEditor.selectedSpriteName);
+    if (!currentSettings) return;
+    
+    const updatedSettings = {
+      ...currentSettings,
+      [`invisibleMargin${marginType.charAt(0).toUpperCase() + marginType.slice(1)}`]: value
+    };
+    
+    // SIMPLIFIED: No auto-recalculation for walls - just update the margin
+    console.log(`[IsometricConfigurationPanel] Updating wall ${marginType} margin for ${isometricEditor.selectedSpriteName}: ${value}px`);
+    battlemapActions.setWallPositioningSettings(isometricEditor.selectedSpriteName, updatedSettings as any);
+  };
+
+  const handleWallManualVerticalBiasChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isWallMode) return;
+    const value = parseFloat(event.target.value);
+    if (!isNaN(value) && isometricEditor.selectedSpriteName) {
+      const currentSettings = battlemapActions.getWallPositioningSettings(isometricEditor.selectedSpriteName);
+      if (currentSettings) {
+        const updatedSettings = {
+          ...currentSettings,
+          manualVerticalBias: value,
+          useAutoComputed: false // Switch to manual mode when user changes value
+        };
+        console.log(`[IsometricConfigurationPanel] Setting manual wall vertical bias for ${isometricEditor.selectedSpriteName}: ${value}px`);
+        battlemapActions.setWallPositioningSettings(isometricEditor.selectedSpriteName, updatedSettings);
+      }
+    }
+  };
+
+  const handleWallAutoModeToggle = (spriteName: string) => {
+    if (!isWallMode) return;
+    const currentSettings = battlemapActions.getWallPositioningSettings(spriteName);
+    if (currentSettings) {
+      const updatedSettings = {
+        ...currentSettings,
+        useAutoComputed: !currentSettings.useAutoComputed
+      };
+      console.log(`[IsometricConfigurationPanel] Toggling wall auto mode for ${spriteName}: ${updatedSettings.useAutoComputed ? 'AUTO' : 'MANUAL'}`);
+      battlemapActions.setWallPositioningSettings(spriteName, updatedSettings);
+    }
+  };
+
+  const handleWallRecalculate = (spriteName: string) => {
+    if (!isWallMode) return;
+    const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+    if (spriteFrameSize) {
+      // Use wall calculation function (now returns simple manual defaults)
+      const calculated = battlemapActions.calculateWallPositioning(
+        spriteFrameSize.width, 
+        spriteFrameSize.height
+      );
+      battlemapActions.setWallPositioningSettings(spriteName, calculated);
+      console.log(`[IsometricConfigurationPanel] Reset wall positioning to manual defaults for ${spriteName}:`, calculated);
+    }
+  };
+
+  // UNCHANGED: Block-specific handlers (completely separate from wall handlers)
   const handleManualVerticalBiasChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isWallMode) return; // Don't interfere with wall mode
     const value = parseFloat(event.target.value);
     if (!isNaN(value) && isometricEditor.selectedSpriteName) {
       const currentSettings = battlemapActions.getSpriteTypeSettings(isometricEditor.selectedSpriteName);
@@ -67,8 +145,9 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
     }
   };
 
-  // NEW: Toggle between auto-computed and manual mode
+  // UNCHANGED: Toggle between auto-computed and manual mode (blocks only)
   const handleToggleAutoMode = (spriteName: string) => {
+    if (isWallMode) return; // Don't interfere with wall mode
     const currentSettings = battlemapActions.getSpriteTypeSettings(spriteName);
     if (currentSettings) {
       const updatedSettings = {
@@ -80,8 +159,9 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
     }
   };
 
-  // NEW: Recalculate auto-computed values
+  // UNCHANGED: Recalculate auto-computed values (blocks only)
   const handleRecalculate = (spriteName: string) => {
+    if (isWallMode) return; // Don't interfere with wall mode
     const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
     if (spriteFrameSize) {
       // Use the store's calculation function which includes current rounding method
@@ -91,9 +171,9 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
     }
   };
 
-  // NEW: Handle margin changes
+  // UNCHANGED: Handle margin changes (blocks only)
   const handleMarginChange = (marginType: 'up' | 'down' | 'left' | 'right', value: number) => {
-    if (!isometricEditor.selectedSpriteName) return;
+    if (isWallMode || !isometricEditor.selectedSpriteName) return; // Don't interfere with wall mode
     
     const currentSettings = battlemapActions.getSpriteTypeSettings(isometricEditor.selectedSpriteName);
     if (!currentSettings) return;
@@ -174,6 +254,17 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
           sx={{ justifyContent: 'flex-start' }}
         >
           🗑️ Clear All Tiles
+        </Button>
+
+        <Button
+          variant="outlined"
+          onClick={() => battlemapActions.clearAllWalls()}
+          disabled={isLocked}
+          color="error"
+          size="small"
+          sx={{ justifyContent: 'flex-start' }}
+        >
+          🧱 Clear All Walls
         </Button>
 
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -416,11 +507,11 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
 
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 2 }} />
 
-      {/* Per-Sprite Settings */}
-      {isometricEditor.selectedSpriteName && (
+      {/* Per-Sprite Settings - BLOCKS ONLY */}
+      {!isWallMode && isometricEditor.selectedSpriteName && (
         <>
           <Typography variant="subtitle2" gutterBottom sx={{ color: '#4CAF50' }}>
-            🖼️ {isometricEditor.selectedSpriteName.replace(/_/g, ' ')} Settings
+            🖼️ {isometricEditor.selectedSpriteName.replace(/_/g, ' ')} Block Settings
           </Typography>
 
           {currentSpriteSettings && (
@@ -616,15 +707,242 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
 
           {!currentSpriteSettings && (
             <Typography variant="body2" sx={{ opacity: 0.7, mb: 2 }}>
-              📋 No settings configured yet. Settings will be auto-calculated when you place a tile.
+              📋 No block settings configured yet. Settings will be auto-calculated when you place a tile.
             </Typography>
           )}
         </>
       )}
 
+      {/* Per-Sprite Settings - WALLS ONLY */}
+      {isWallMode && isometricEditor.selectedSpriteName && (
+        <>
+          <Typography variant="subtitle2" gutterBottom sx={{ color: '#E91E63' }}>
+            🧱 {isometricEditor.selectedSpriteName.replace(/_/g, ' ')} Wall Settings
+          </Typography>
+
+          {/* Wall Direction Controls */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1, color: '#FF9800' }}>
+              🧭 Wall Placement Direction:
+            </Typography>
+            <ToggleButtonGroup
+              value={isometricEditor.wallPlacementDirection}
+              exclusive
+              onChange={(_, value) => value !== null && battlemapActions.setWallPlacementDirection(value)}
+              size="small"
+              disabled={isLocked}
+              sx={{ display: 'flex', gap: 0.5 }}
+            >
+              <ToggleButton value={IsometricDirection.NORTH} sx={{ color: 'white', minWidth: '60px', fontSize: '0.7rem' }}>
+                🔼 North
+              </ToggleButton>
+              <ToggleButton value={IsometricDirection.EAST} sx={{ color: 'white', minWidth: '60px', fontSize: '0.7rem' }}>
+                ▶️ East
+              </ToggleButton>
+              <ToggleButton value={IsometricDirection.SOUTH} sx={{ color: 'white', minWidth: '60px', fontSize: '0.7rem' }}>
+                🔽 South
+              </ToggleButton>
+              <ToggleButton value={IsometricDirection.WEST} sx={{ color: 'white', minWidth: '60px', fontSize: '0.7rem' }}>
+                ◀️ West
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {currentWallSettings && (
+            <>
+              {/* Wall Auto/Manual Mode Toggle */}
+              <Box sx={{ mb: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={currentWallSettings.useAutoComputed}
+                      onChange={() => handleWallAutoModeToggle(isometricEditor.selectedSpriteName!)}
+                      disabled={true} // DISABLED: Auto calculation removed for walls
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#E91E63' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#E91E63' }
+                      }}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                        ✋ Manual Mode Only
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => handleWallRecalculate(isometricEditor.selectedSpriteName!)}
+                        disabled={isLocked}
+                        sx={{
+                          minWidth: 'auto',
+                          padding: '2px 6px',
+                          fontSize: '0.6rem',
+                          borderColor: '#E91E63',
+                          color: '#E91E63',
+                          '&:hover': { borderColor: '#C2185B', color: '#C2185B' }
+                        }}
+                      >
+                        🔄 Reset to 0
+                      </Button>
+                    </Box>
+                  }
+                  sx={{ mb: 1 }}
+                />
+                <Typography variant="caption" sx={{ 
+                  color: '#FF9800', 
+                  fontSize: '0.65rem',
+                  display: 'block',
+                  fontStyle: 'italic'
+                }}>
+                  💡 Auto calculation disabled for walls - manual positioning only
+                </Typography>
+              </Box>
+
+              {/* Wall Vertical Bias Settings */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 1, color: '#FF5722' }}>
+                  📏 Vertical Positioning:
+                </Typography>
+                
+                {/* Manual positioning */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Typography variant="body2" sx={{ minWidth: '60px', color: '#FF5722' }}>Offset:</Typography>
+                  <TextField
+                    type="number"
+                    value={currentWallSettings.manualVerticalBias}
+                    onChange={handleWallManualVerticalBiasChange}
+                    disabled={isLocked}
+                    size="small"
+                    sx={{ 
+                      width: '80px',
+                      '& .MuiInputBase-input': { 
+                        color: 'white', 
+                        fontSize: '0.8rem', 
+                        padding: '4px 8px' 
+                      },
+                      '& .MuiOutlinedInput-root': { 
+                        '& fieldset': { borderColor: '#FF5722' },
+                        '&:hover fieldset': { borderColor: '#D84315' }
+                      }
+                    }}
+                  />
+                  <Typography variant="caption" sx={{ color: '#FF5722' }}>px</Typography>
+                </Box>
+
+                {/* Active value display */}
+                <Typography variant="caption" sx={{ 
+                  color: '#E91E63', 
+                  fontSize: '0.65rem',
+                  fontWeight: 'bold'
+                }}>
+                  ✅ Active: {currentWallSettings.manualVerticalBias}px (manual)
+                </Typography>
+              </Box>
+
+              {/* 4-Directional Margins for Walls */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 1, color: '#673AB7' }}>
+                  📐 Invisible Margins:
+                </Typography>
+                
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                  {/* Up */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" sx={{ minWidth: '30px', color: '#673AB7' }}>Up:</Typography>
+                    <TextField
+                      type="number"
+                      value={currentWallSettings.invisibleMarginUp}
+                      onChange={(e) => handleWallMarginChange('up', parseInt(e.target.value) || 0)}
+                      disabled={isLocked}
+                      size="small"
+                      sx={{ 
+                        width: '60px',
+                        '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                        '& .MuiOutlinedInput-root': { 
+                          '& fieldset': { borderColor: '#673AB7' },
+                          '&:hover fieldset': { borderColor: '#512DA8' }
+                        }
+                      }}
+                    />
+                  </Box>
+                  
+                  {/* Down */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" sx={{ minWidth: '40px', color: '#673AB7' }}>Down:</Typography>
+                    <TextField
+                      type="number"
+                      value={currentWallSettings.invisibleMarginDown}
+                      onChange={(e) => handleWallMarginChange('down', parseInt(e.target.value) || 0)}
+                      disabled={isLocked}
+                      size="small"
+                      sx={{ 
+                        width: '60px',
+                        '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                        '& .MuiOutlinedInput-root': { 
+                          '& fieldset': { borderColor: '#673AB7' },
+                          '&:hover fieldset': { borderColor: '#512DA8' }
+                        }
+                      }}
+                    />
+                  </Box>
+                  
+                  {/* Left */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" sx={{ minWidth: '30px', color: '#673AB7' }}>Left:</Typography>
+                    <TextField
+                      type="number"
+                      value={currentWallSettings.invisibleMarginLeft}
+                      onChange={(e) => handleWallMarginChange('left', parseInt(e.target.value) || 0)}
+                      disabled={isLocked}
+                      size="small"
+                      sx={{ 
+                        width: '60px',
+                        '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                        '& .MuiOutlinedInput-root': { 
+                          '& fieldset': { borderColor: '#673AB7' },
+                          '&:hover fieldset': { borderColor: '#512DA8' }
+                        }
+                      }}
+                    />
+                  </Box>
+                  
+                  {/* Right */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" sx={{ minWidth: '40px', color: '#673AB7' }}>Right:</Typography>
+                    <TextField
+                      type="number"
+                      value={currentWallSettings.invisibleMarginRight}
+                      onChange={(e) => handleWallMarginChange('right', parseInt(e.target.value) || 0)}
+                      disabled={isLocked}
+                      size="small"
+                      sx={{ 
+                        width: '60px',
+                        '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                        '& .MuiOutlinedInput-root': { 
+                          '& fieldset': { borderColor: '#673AB7' },
+                          '&:hover fieldset': { borderColor: '#512DA8' }
+                        }
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            </>
+          )}
+
+          {!currentWallSettings && (
+            <Typography variant="body2" sx={{ opacity: 0.7, mb: 2 }}>
+              📋 No wall settings configured yet. Settings will be auto-calculated when you place a wall.
+            </Typography>
+          )}
+        </>
+      )}
+
+      {/* Mode-specific guidance */}
       {!isometricEditor.selectedSpriteName && (
-        <Typography variant="body2" sx={{ opacity: 0.7, color: '#FFC107' }}>
-          💡 Select a sprite to configure its positioning settings
+        <Typography variant="body2" sx={{ opacity: 0.7, color: isWallMode ? '#E91E63' : '#4CAF50' }}>
+          💡 Select a sprite to configure its {isWallMode ? 'wall edge positioning' : 'block positioning'} settings
         </Typography>
       )}
     </Paper>

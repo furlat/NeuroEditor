@@ -16,11 +16,37 @@ export interface TileSummary {
   readonly snap_position: 'above' | 'below'; // Whether tile snaps above or below grid (affects vertical offset application)
 }
 
+// NEW: Wall system - border-based objects
+export interface WallSummary {
+  readonly uuid: string;
+  readonly name: string;
+  readonly position: Position; // Grid cell position (x, y)
+  readonly z_level: number; // Z-axis level for multi-layer rendering
+  readonly wall_direction: IsometricDirection; // Which border: N/E/S/W
+  readonly sprite_name: string | null;
+  readonly sprite_direction: IsometricDirection; // Sprite facing direction
+  readonly wall_type: 'brick' | 'stone' | 'wood' | 'custom'; // Wall material/type
+  readonly blocks_movement: boolean; // Whether wall blocks movement across border
+  readonly visible: boolean;
+  readonly snap_position: 'above' | 'below'; // Whether wall sprite snaps above or below grid edge (same as blocks)
+}
+
+// NEW: Wall edge positioning for click detection
+export interface WallEdge {
+  readonly gridX: number;
+  readonly gridY: number;
+  readonly edge: IsometricDirection; // N/E/S/W edge of the grid cell
+  readonly centerX: number; // Screen X coordinate of edge center
+  readonly centerY: number; // Screen Y coordinate of edge center
+}
+
 // Response types
 export interface GridSnapshot {
   readonly width: number;
   readonly height: number;
   readonly tiles: Readonly<Record<string, TileSummary>>;
+  // NEW: Add walls to grid snapshot
+  readonly walls: Readonly<Record<string, WallSummary>>;
 }
 
 // Senses interfaces

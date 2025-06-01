@@ -11,7 +11,10 @@ import {
   Divider,
   Card,
   CardMedia,
-  CardContent
+  CardContent,
+  Button,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import { 
   North as NorthIcon,
@@ -32,43 +35,37 @@ interface IsometricSpriteSelectorProps {
   isLocked: boolean;
 }
 
-// Get all sprite names from the blocks directory
+// Helper function to get sprite height for sorting
+const getSpriteHeight = (spriteName: string): number => {
+  const frameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+  return frameSize?.height || 0;
+};
+
+// Sort sprites by height (shorter first, then alphabetically)
+const sortSpritesByHeight = (sprites: string[]): string[] => {
+  return [...sprites].sort((a, b) => {
+    const heightA = getSpriteHeight(a);
+    const heightB = getSpriteHeight(b);
+    
+    // First sort by height (shorter sprites first)
+    if (heightA !== heightB) {
+      return heightA - heightB;
+    }
+    
+    // Then sort alphabetically for sprites of same height
+    return a.localeCompare(b);
+  });
+};
+
+// FIXED: Use actual folder structure instead of name filtering
 const getAllBlockSprites = (): string[] => {
-  const spriteNames = [
-    'UnderBlock_01',
-    'UnderBlock_Corner_01', 
-    'UnderBlock_Bottom_Tall_01',
-    'UnderBlock_Mid_Tall_01',
-    'FloorBlock_Tall_01',
-    'FloorBlock_Corner_Tall_01',
-    'FloorBlock_Top_Corner_01',
-    'FloorBlock_01',
-    'FloorBlock_Corner_01',
-    'GardenFloor_Path_03',
-    'GardenFloor_Path_01',
-    'GardenFloor_01',
-    'GardenFloor_HalfSquare_02',
-    'GardenFloor_HalfSquare_01',
-    'GardenFloor_Square_01',
-    'GardenFloor_Path_02',
-    'FloorBlock_Mid_01',
-    'FloorBlock_Bottom_01',
-    'UnderBlock_Tall_01',
-    'GardenBlock_Path_03',
-    'GardenBlock_Path_01',
-    'GardenBlock_01',
-    'GardenBlock_HalfSquare_02',
-    'GardenBlock_HalfSquare_01',
-    'GardenBlock_Square_01',
-    'GardenBlock_Path_02',
-    'UnderBlock_Corner_Tall_01',
-    'UnderFloor_01',
-    'Floor_01',
-    'Floor_Corner_01',
-    'FloorBlock_Top_01'
-  ];
-  
-  return spriteNames.sort(); // Sort alphabetically
+  const blockSprites = isometricSpriteManager.getSpritesInCategory(SpriteCategory.BLOCKS);
+  return sortSpritesByHeight(blockSprites);
+};
+
+const getAllWallSprites = (): string[] => {
+  const wallSprites = isometricSpriteManager.getSpritesInCategory(SpriteCategory.WALLS);
+  return sortSpritesByHeight(wallSprites);
 };
 
 // Component for sprite preview
@@ -205,99 +202,124 @@ const SpritePreview: React.FC<SpritePreviewProps> = ({
 };
 
 const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLocked }) => {
-  // PERFORMANCE FIX: Only subscribe to isometric editor controls, not the entire store
-  // This avoids re-renders when offset changes during WASD movement
+  // Performance-optimized snapshots
   const controlsSnap = useSnapshot(battlemapStore.controls);
   const isometricEditor = controlsSnap.isometricEditor;
   
+  // Local state
   const [availableSprites, setAvailableSprites] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchFilter, setSearchFilter] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Current selections
+  const selectedSprite = isometricEditor.selectedSpriteName;
+  const selectedDirection = isometricEditor.wallMode ? isometricEditor.wallSpriteDirection : isometricEditor.selectedSpriteDirection;
+  const isWallMode = isometricEditor.wallMode;
 
-  // Load available sprites when component mounts
+  // Mode-aware sprite loading using actual folder structure
   useEffect(() => {
     const loadSprites = async () => {
-      setIsLoading(true);
       try {
+        setIsLoading(true);
         await isometricSpriteManager.loadAll();
-        const allBlockSprites = getAllBlockSprites();
-        setAvailableSprites(allBlockSprites);
         
-        // Auto-select first sprite if none selected
-        if (!isometricEditor.selectedSpriteName && allBlockSprites.length > 0) {
-          handleSpriteSelect(allBlockSprites[0]);
+        // Load sprites based on current mode using folder structure
+        if (isWallMode) {
+          const wallSprites = getAllWallSprites();
+          setAvailableSprites(wallSprites);
+          console.log(`[IsometricSpriteSelector] Loaded ${wallSprites.length} wall sprites from /walls folder`);
+        } else {
+          const blockSprites = getAllBlockSprites();
+          setAvailableSprites(blockSprites);
+          console.log(`[IsometricSpriteSelector] Loaded ${blockSprites.length} block sprites from /blocks folder`);
         }
       } catch (error) {
-        console.error('Failed to load sprites:', error);
+        console.error('[IsometricSpriteSelector] Failed to load sprites:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadSprites();
-  }, []);
+  }, [isWallMode]); // React to wall mode changes
 
   const handleSpriteSelect = (spriteName: string) => {
+    if (isLocked) return;
+    
     battlemapActions.setSelectedSprite(spriteName);
-    
-    // Check if we have existing settings for this sprite
-    const existingSettings = controlsSnap.isometricEditor.spriteTypeSettings[spriteName];
-    
-    if (!existingSettings) {
-      // Auto-calculate using user's exact formula for new sprites
-      const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
-      if (spriteFrameSize) {
-        // Use the store's calculation function which includes current rounding method
-        const calculated = battlemapActions.calculateSpriteTypePositioning(spriteFrameSize.width, spriteFrameSize.height);
-        
-        // Save calculated settings
-        battlemapActions.setSpriteTypeSettings(spriteName, calculated);
-        
-        console.log(`[IsometricSpriteSelector] Auto-calculated settings for ${spriteName}:`, calculated);
-      }
-    } else {
-      console.log(`[IsometricSpriteSelector] Using existing settings for ${spriteName}:`, existingSettings);
-    }
+    console.log(`[IsometricSpriteSelector] Selected ${isWallMode ? 'wall' : 'block'} sprite: ${spriteName}`);
   };
 
   const handleDirectionChange = (direction: IsometricDirection) => {
-    battlemapActions.setSelectedSpriteDirection(direction);
-  };
-
-  const getDirectionIcon = (direction: IsometricDirection) => {
-    switch (direction) {
-      case IsometricDirection.NORTH: return <NorthIcon />;
-      case IsometricDirection.EAST: return <EastIcon />;
-      case IsometricDirection.SOUTH: return <SouthIcon />;
-      case IsometricDirection.WEST: return <WestIcon />;
+    if (isLocked) return;
+    
+    if (isWallMode) {
+      // For walls: update BOTH sprite direction (how it faces) AND placement direction (which edge)
+      battlemapActions.setWallSpriteDirection(direction);
+      battlemapActions.setWallPlacementDirection(direction);
+      console.log(`[IsometricSpriteSelector] Changed wall direction to: ${direction} (both sprite facing and placement edge)`);
+    } else {
+      // For blocks: only update sprite direction (blocks are center-placed)
+      battlemapActions.setSelectedSpriteDirection(direction);
+      console.log(`[IsometricSpriteSelector] Changed block direction to: ${direction}`);
     }
   };
 
-  // Filter sprites based on search
-  const filteredSprites = availableSprites.filter(sprite =>
-    sprite.toLowerCase().includes(searchFilter.toLowerCase())
-  );
+  // NEW: Wall/Block mode toggle handler
+  const handleModeToggle = () => {
+    if (isLocked) return;
+    battlemapActions.toggleWallMode();
+  };
 
-  if (isLoading) {
-    return (
-      <Paper sx={{ p: 2, backgroundColor: 'rgba(0, 0, 0, 0.9)', color: 'white' }}>
-        <Typography>Loading sprites...</Typography>
-      </Paper>
-    );
-  }
+  const getDirectionIcon = (direction: IsometricDirection) => {
+    const icons = ['🔼', '▶️', '🔽', '◀️'];
+    return icons[direction] || '🔼';
+  };
 
   return (
     <Paper sx={{ 
       p: 2, 
       backgroundColor: 'rgba(0, 0, 0, 0.9)', 
       color: 'white',
-      maxHeight: '80vh',
+      maxHeight: '70vh',
       overflow: 'auto',
-      width: '420px'
+      minWidth: '300px'
     }}>
-      <Typography variant="h6" gutterBottom>
-        🎨 Sprite Selection
-      </Typography>
+      {/* NEW: Mode Toggle at the top - more intuitive */}
+      <Box sx={{ mb: 2, pb: 2, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={isWallMode}
+              onChange={handleModeToggle}
+              disabled={isLocked}
+              sx={{
+                '& .MuiSwitch-switchBase.Mui-checked': { color: '#E91E63' },
+                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#E91E63' }
+              }}
+            />
+          }
+          label={
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Typography variant="h6" sx={{ color: isWallMode ? '#E91E63' : '#2196F3' }}>
+                {isWallMode ? '🧱 Wall Mode' : '🧊 Block Mode'}
+              </Typography>
+              <Typography variant="caption" sx={{ 
+                color: isWallMode ? '#E91E63' : '#2196F3', 
+                fontSize: '0.65rem',
+                opacity: 0.8
+              }}>
+                {isWallMode ? 'Edge-based wall placement' : 'Center-based block placement'}
+              </Typography>
+              <Typography variant="caption" sx={{ 
+                color: 'rgba(255,255,255,0.5)', 
+                fontSize: '0.6rem'
+              }}>
+                💡 Hotkey: Q (Toggle Mode)
+              </Typography>
+            </Box>
+          }
+        />
+      </Box>
 
       {isLocked && (
         <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
@@ -305,144 +327,131 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
         </Typography>
       )}
 
-      {/* Search Filter */}
-      <TextField
-        label="Search Sprites"
-        value={searchFilter}
-        onChange={(e) => setSearchFilter(e.target.value)}
-        onFocus={(e) => {
-          console.log('[IsometricSpriteSelector] Search focused - blocking WASD movement');
-        }}
-        onBlur={(e) => {
-          console.log('[IsometricSpriteSelector] Search blurred - enabling WASD movement');
-        }}
-        disabled={isLocked}
-        size="small"
-        autoComplete="off"
-        spellCheck={false}
-        sx={{ 
-          width: '100%',
-          mb: 2,
-          '& .MuiInputBase-input': { 
-            color: 'white', 
-            fontSize: '0.8rem'
-          },
-          '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
-          '& .MuiOutlinedInput-root': { 
-            '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-            '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
-            '&.Mui-focused fieldset': { borderColor: '#2196F3' }
-          }
-        }}
-      />
-
-      {/* Current Selection */}
-      {isometricEditor.selectedSpriteName && (
-        <Box sx={{ 
-          mb: 2, 
-          p: 1, 
-          border: '1px solid rgba(76, 175, 80, 0.5)',
-          borderRadius: 1,
-          backgroundColor: 'rgba(76, 175, 80, 0.1)'
+      {/* Direction Controls - Show different labels for walls vs blocks */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" gutterBottom sx={{ color: '#FFC107' }}>
+          {isWallMode ? '🧭 Wall Sprite Direction:' : '🧭 Block Sprite Direction:'}
+        </Typography>
+        
+        <ToggleButtonGroup
+          value={selectedDirection}
+          exclusive
+          onChange={(_, value) => value !== null && handleDirectionChange(value)}
+          size="small"
+          disabled={isLocked}
+          sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}
+        >
+          <ToggleButton value={IsometricDirection.NORTH} sx={{ color: 'white', minWidth: '60px' }}>
+            {getDirectionIcon(IsometricDirection.NORTH)} North
+          </ToggleButton>
+          <ToggleButton value={IsometricDirection.EAST} sx={{ color: 'white', minWidth: '60px' }}>
+            {getDirectionIcon(IsometricDirection.EAST)} East
+          </ToggleButton>
+          <ToggleButton value={IsometricDirection.SOUTH} sx={{ color: 'white', minWidth: '60px' }}>
+            {getDirectionIcon(IsometricDirection.SOUTH)} South
+          </ToggleButton>
+          <ToggleButton value={IsometricDirection.WEST} sx={{ color: 'white', minWidth: '60px' }}>
+            {getDirectionIcon(IsometricDirection.WEST)} West
+          </ToggleButton>
+        </ToggleButtonGroup>
+        
+        <Typography variant="caption" sx={{ 
+          color: '#FFC107', 
+          fontSize: '0.65rem', 
+          display: 'block', 
+          mt: 0.5 
         }}>
-          <Typography variant="caption" sx={{ color: '#4CAF50' }}>
-            ✅ Selected: {isometricEditor.selectedSpriteName}
+          {isWallMode 
+            ? '🔄 Direction the wall sprite faces (independent of placement edge)'
+            : '🔄 Use Z/X keys for quick rotation while editing'
+          }
+        </Typography>
+      </Box>
+
+      {/* Current Selection Display */}
+      {selectedSprite && (
+        <Box sx={{ mb: 2, p: 1, border: '1px solid #FFC107', borderRadius: 1 }}>
+          <Typography variant="subtitle2" sx={{ color: '#FFC107', mb: 1 }}>
+            📌 Selected {isWallMode ? 'Wall' : 'Block'}:
           </Typography>
-          <Typography variant="caption" sx={{ 
-            color: '#00BCD4', 
-            display: 'block', 
-            fontSize: '0.65rem' 
-          }}>
-            🎯 Z-Level: {isometricEditor.selectedZLevel} | Direction: {isometricEditor.selectedSpriteDirection}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SpritePreview 
+              spriteName={selectedSprite} 
+              isSelected={true}
+              onSelect={() => {}} 
+              disabled={true}
+              direction={selectedDirection}
+            />
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                {selectedSprite.replace(/_/g, ' ')}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                {getDirectionIcon(selectedDirection)} {['North', 'East', 'South', 'West'][selectedDirection]}
+              </Typography>
+              <Typography variant="caption" sx={{ 
+                color: 'rgba(255,255,255,0.5)', 
+                fontSize: '0.6rem',
+                display: 'block'
+              }}>
+                Height: {getSpriteHeight(selectedSprite)}px
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* Available Sprites Grid */}
+      <Typography variant="subtitle2" gutterBottom sx={{ color: '#4CAF50' }}>
+        🎨 Available {isWallMode ? 'Wall' : 'Block'} Sprites:
+      </Typography>
+
+      {isLoading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            Loading {isWallMode ? 'wall' : 'block'} sprites...
           </Typography>
         </Box>
       )}
-      
-      {/* Sprite Grid with Previews */}
-      <Box sx={{ 
-        maxHeight: '400px', 
-        overflow: 'auto', 
-        border: '1px solid rgba(255,255,255,0.2)',
-        borderRadius: 1,
-        p: 1,
-        mb: 2
-      }}>
-        <Typography variant="caption" sx={{ mb: 1, display: 'block', color: '#FFC107' }}>
-          📦 Available Sprites ({filteredSprites.length} found):
+
+      {!isLoading && availableSprites.length === 0 && (
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', textAlign: 'center', p: 2 }}>
+          No {isWallMode ? 'wall' : 'block'} sprites available
         </Typography>
-        
+      )}
+
+      {!isLoading && availableSprites.length > 0 && (
         <Box sx={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-          gap: 1
+          gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', 
+          gap: 1,
+          maxHeight: '300px',
+          overflow: 'auto'
         }}>
-          {filteredSprites.map((spriteName) => (
+          {availableSprites.map((spriteName) => (
             <SpritePreview
               key={spriteName}
               spriteName={spriteName}
-              isSelected={isometricEditor.selectedSpriteName === spriteName}
+              isSelected={selectedSprite === spriteName}
               onSelect={() => handleSpriteSelect(spriteName)}
               disabled={isLocked}
-              direction={isometricEditor.selectedSpriteDirection}
+              direction={selectedDirection}
             />
           ))}
         </Box>
-      </Box>
+      )}
 
-      {/* Direction & Z-Level Controls */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Box>
-          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: '#FF9800' }}>
-            🧭 Direction:
-          </Typography>
-          <ToggleButtonGroup
-            value={isometricEditor.selectedSpriteDirection}
-            exclusive
-            onChange={(_, value) => value !== null && handleDirectionChange(value)}
-            size="small"
-            disabled={isLocked}
-          >
-            {[IsometricDirection.NORTH, IsometricDirection.EAST, IsometricDirection.SOUTH, IsometricDirection.WEST].map((direction) => (
-              <ToggleButton 
-                key={direction} 
-                value={direction}
-                sx={{ color: 'white', minWidth: '32px', padding: '4px' }}
-              >
-                {getDirectionIcon(direction)}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-        </Box>
-        
-        <Box>
-          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: '#9C27B0' }}>
-            🏔️ Z-Level:
-          </Typography>
-          <TextField
-            type="number"
-            value={isometricEditor.selectedZLevel}
-            onChange={(e) => battlemapActions.setSelectedZLevel(parseInt(e.target.value) || 0)}
-            onFocus={() => console.log('[IsometricSpriteSelector] Z-level input focused')}
-            onBlur={() => console.log('[IsometricSpriteSelector] Z-level input blurred')}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '80px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' }
-              }
-            }}
-            inputProps={{ min: 0, max: 10 }}
-          />
-        </Box>
+      {/* Footer with sprite count and mode info */}
+      <Box sx={{ mt: 2, pt: 1, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+        <Typography variant="caption" sx={{ 
+          color: 'rgba(255,255,255,0.5)', 
+          fontSize: '0.65rem' 
+        }}>
+          {availableSprites.length} {isWallMode ? 'wall' : 'block'} sprites loaded (sorted by height)
+          <br />
+          {isWallMode ? '🎯 Click edges to place walls' : '🎯 Click centers to place blocks'}
+        </Typography>
       </Box>
-
-      <Typography variant="caption" sx={{ opacity: 0.6, display: 'block', fontSize: '0.7rem' }}>
-        💡 Click a sprite to select it, then use left/right-click to place tiles.<br/>
-        🖱️ Middle-click to delete | 🎹 Keys 1-3 to switch layers
-      </Typography>
     </Paper>
   );
 };

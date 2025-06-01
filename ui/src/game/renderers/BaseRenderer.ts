@@ -151,7 +151,7 @@ export abstract class AbstractRenderer implements BaseRenderer {
     if (now - this.lastSummaryTime >= 10000) { // 10 seconds
       const baseInfo = `10s Summary: ${this.renderCount} renders`;
       const fullInfo = additionalInfo ? `${baseInfo}, ${additionalInfo}` : baseInfo;
-      console.log(`[${this.constructor.name}] ${fullInfo}`);
+      // console.log(`[${this.constructor.name}] ${fullInfo}`);
       
       this.lastSummaryTime = now;
       this.renderCount = 0;

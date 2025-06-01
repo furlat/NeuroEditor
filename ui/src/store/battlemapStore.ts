@@ -1,5 +1,5 @@
 import { proxy } from 'valtio';
-import { TileSummary } from '../types/battlemap_types';
+import { TileSummary, WallSummary } from '../types/battlemap_types';
 import type { DeepReadonly } from '../types/common';
 import { TileType } from '../hooks/battlemap';
 import { IsometricDirection, SpriteCategory } from '../game/managers/IsometricSpriteManager';
@@ -53,6 +53,25 @@ export interface IsometricEditorState {
     // User provided manual bias (shown in menu, initially set to auto-computed)
     manualVerticalBias: number;
   }>;
+  // NEW: Wall-specific settings
+  wallMode: boolean; // Toggle between block and wall editing modes
+  selectedWallType: 'brick' | 'stone' | 'wood' | 'custom';
+  wallPlacementDirection: IsometricDirection; // Which edge to place wall on
+  wallSpriteDirection: IsometricDirection; // Which direction the wall sprite faces
+  // Wall positioning settings (SAME SYSTEM AS BLOCKS - wall sprites are just positioned relative to edges instead of centers)
+  wallPositioningSettings: Record<string, {
+    // 4-directional invisible margins (same as blocks)
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    // Auto-computed vertical bias (same calculation as blocks)
+    autoComputedVerticalBias: number;
+    // Whether to use auto-computed or manual
+    useAutoComputed: boolean;
+    // User provided manual bias (same as blocks)
+    manualVerticalBias: number;
+  }>;
 }
 
 // Types for the local-only store
@@ -60,6 +79,8 @@ export interface GridState {
   width: number;
   height: number;
   tiles: Record<string, TileSummary>;
+  // NEW: Wall storage with 4D keys: x,y,z,direction
+  walls: Record<string, WallSummary>;
   maxZLevel: number; // Track the highest Z level in use
 }
 
@@ -127,6 +148,7 @@ const battlemapStore = proxy<BattlemapStoreState>({
     width: 30,
     height: 20,
     tiles: {},
+    walls: {},
     maxZLevel: 0,
   },
   view: {
@@ -171,6 +193,11 @@ const battlemapStore = proxy<BattlemapStoreState>({
       brushSize: 1,
       isDirectionalMode: false,
       spriteTypeSettings: {},
+      wallMode: false,
+      selectedWallType: 'brick',
+      wallPlacementDirection: IsometricDirection.SOUTH,
+      wallSpriteDirection: IsometricDirection.SOUTH,
+      wallPositioningSettings: {},
     },
   },
   loading: false,
@@ -836,6 +863,144 @@ const battlemapActions = {
     });
     
     console.log(`[battlemapStore] Finished recalculating sprite settings`);
+  },
+
+  // NEW: Wall management actions
+  addWall: (wall: WallSummary) => {
+    const wallKey = `${wall.position[0]},${wall.position[1]},${wall.z_level},${wall.wall_direction}`;
+    battlemapStore.grid.walls[wallKey] = wall;
+    
+    // Update max Z level if necessary
+    if (wall.z_level > battlemapStore.grid.maxZLevel) {
+      battlemapStore.grid.maxZLevel = wall.z_level;
+    }
+    
+    console.log('[battlemapStore] Added wall:', wall, '- FORCING RENDER');
+    
+    // Force immediate re-render
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    setTimeout(() => {
+      if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+
+  removeWall: (x: number, y: number, z: number, direction: IsometricDirection) => {
+    const wallKey = `${x},${y},${z},${direction}`;
+    if (battlemapStore.grid.walls[wallKey]) {
+      delete battlemapStore.grid.walls[wallKey];
+      console.log('[battlemapStore] Removed wall at:', [x, y, z, direction], '- FORCING RENDER');
+      
+      // Force immediate re-render
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      setTimeout(() => {
+        if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
+    }
+  },
+
+  updateWall: (x: number, y: number, z: number, direction: IsometricDirection, updates: Partial<WallSummary>) => {
+    const wallKey = `${x},${y},${z},${direction}`;
+    const existingWall = battlemapStore.grid.walls[wallKey];
+    if (existingWall) {
+      battlemapStore.grid.walls[wallKey] = { ...existingWall, ...updates };
+      console.log('[battlemapStore] Updated wall at:', [x, y, z, direction], '- FORCING RENDER');
+      
+      // Force immediate re-render
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      setTimeout(() => {
+        if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
+    }
+  },
+
+  getWallsAtPosition: (x: number, y: number, z: number): WallSummary[] => {
+    const walls: WallSummary[] = [];
+    for (const direction of [IsometricDirection.NORTH, IsometricDirection.EAST, IsometricDirection.SOUTH, IsometricDirection.WEST]) {
+      const wallKey = `${x},${y},${z},${direction}`;
+      const wall = battlemapStore.grid.walls[wallKey];
+      if (wall) {
+        walls.push(wall);
+      }
+    }
+    return walls;
+  },
+
+  clearAllWalls: () => {
+    battlemapStore.grid.walls = {};
+    console.log('[battlemapStore] Cleared all walls locally');
+  },
+
+  // NEW: Wall editor controls
+  setWallMode: (enabled: boolean) => {
+    battlemapStore.controls.isometricEditor.wallMode = enabled;
+    console.log(`[battlemapStore] Wall mode ${enabled ? 'enabled' : 'disabled'}`);
+  },
+
+  toggleWallMode: () => {
+    const newWallMode = !battlemapStore.controls.isometricEditor.wallMode;
+    battlemapActions.setWallMode(newWallMode);
+  },
+
+  setSelectedWallType: (wallType: 'brick' | 'stone' | 'wood' | 'custom') => {
+    battlemapStore.controls.isometricEditor.selectedWallType = wallType;
+  },
+
+  setWallPlacementDirection: (direction: IsometricDirection) => {
+    battlemapStore.controls.isometricEditor.wallPlacementDirection = direction;
+  },
+
+  setWallSpriteDirection: (direction: IsometricDirection) => {
+    battlemapStore.controls.isometricEditor.wallSpriteDirection = direction;
+  },
+
+  // Wall positioning settings (SAME SYSTEM AS BLOCKS - wall sprites are just positioned relative to edges instead of centers)
+  setWallPositioningSettings: (spriteName: string, settings: {
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    autoComputedVerticalBias: number;
+    useAutoComputed: boolean;
+    manualVerticalBias: number;
+  }) => {
+    battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] = settings;
+    console.log(`[battlemapActions] Set wall positioning settings for ${spriteName}:`, settings);
+  },
+
+  getWallPositioningSettings: (spriteName: string) => {
+    return battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] || null;
+  },
+
+  // Calculate wall positioning (SIMPLE MANUAL DEFAULTS - no auto calculation for now)
+  calculateWallPositioning: (spriteWidth: number, spriteHeight: number, margins?: {
+    up?: number; down?: number; left?: number; right?: number;
+  }) => {
+    // Use provided margins or defaults from store
+    const marginUp = margins?.up ?? battlemapStore.view.invisibleMarginUp;
+    const marginDown = margins?.down ?? battlemapStore.view.invisibleMarginDown;
+    const marginLeft = margins?.left ?? battlemapStore.view.invisibleMarginLeft;
+    const marginRight = margins?.right ?? battlemapStore.view.invisibleMarginRight;
+    
+    // SIMPLIFIED: Return manual defaults with 0 offset for walls
+    // This removes auto-calculation complexity so user can understand exact behavior
+    return {
+      invisibleMarginUp: marginUp,
+      invisibleMarginDown: marginDown,
+      invisibleMarginLeft: marginLeft,
+      invisibleMarginRight: marginRight,
+      autoComputedVerticalBias: 0, // Simple default, not actually computed
+      useAutoComputed: false, // Default to manual mode
+      manualVerticalBias: 0 // Default to 0 offset for clear understanding
+    };
   },
 };
 

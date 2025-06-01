@@ -33,20 +33,20 @@ export class IsometricGridRenderer extends AbstractRenderer {
   private setupSubscriptions(): void {
     // Subscribe to the root store for broader reactivity
     this.addSubscription(subscribe(battlemapStore, () => {
-      console.log('[IsometricGridRenderer] Store changed, triggering render');
+      // console.log('[IsometricGridRenderer] Store changed, triggering render');
       this.render();
     }));
     
     // Also set up a manual render trigger that can be called from outside
     (window as any).__forceGridRender = () => {
-      console.log('[IsometricGridRenderer] Manual render trigger called');
+      // console.log('[IsometricGridRenderer] Manual render trigger called');
       this.render();
     };
   }
   
   render(): void {
     this.incrementRenderCount();
-    console.log('[IsometricGridRenderer] Rendering grid...');
+    // console.log('[IsometricGridRenderer] Rendering grid...');
     this.renderGrid();
     this.renderHighlight();
     this.logRenderSummary();
@@ -59,7 +59,7 @@ export class IsometricGridRenderer extends AbstractRenderer {
     if (!battlemapStore.controls.isGridVisible) return;
     
     const snap = battlemapStore;
-    console.log(`[IsometricGridRenderer] Rendering grid - Active: ${snap.view.activeZLayer}, Grid Visibility: [0:${snap.view.gridLayerVisibility[0]}, 1:${snap.view.gridLayerVisibility[1]}, 2:${snap.view.gridLayerVisibility[2]}], Visibility Mode: ${snap.view.layerVisibilityMode}`);
+    // console.log(`[IsometricGridRenderer] Rendering grid - Active: ${snap.view.activeZLayer}, Grid Visibility: [0:${snap.view.gridLayerVisibility[0]}, 1:${snap.view.gridLayerVisibility[1]}, 2:${snap.view.gridLayerVisibility[2]}], Visibility Mode: ${snap.view.layerVisibilityMode}`);
     
     // Render each Z layer grid
     battlemapActions.getAllZLayerConfigs().forEach((layerConfig, layerIndex) => {
@@ -70,7 +70,7 @@ export class IsometricGridRenderer extends AbstractRenderer {
       
       if (!isLayerVisible) {
         // Skip rendering this layer if it's not visible
-        console.log(`[IsometricGridRenderer] Skipping layer ${layerIndex} (visibility: ${isLayerVisible})`);
+        // console.log(`[IsometricGridRenderer] Skipping layer ${layerIndex} (visibility: ${isLayerVisible})`);
         return;
       }
       
@@ -100,7 +100,7 @@ export class IsometricGridRenderer extends AbstractRenderer {
           break;
       }
       
-      console.log(`[IsometricGridRenderer] Rendering layer ${layerIndex} (${layerConfig.name}) - Active: ${isActiveLayer}, Opacity: ${opacity}`);
+      // console.log(`[IsometricGridRenderer] Rendering layer ${layerIndex} (${layerConfig.name}) - Active: ${isActiveLayer}, Opacity: ${opacity}`);
       
       IsometricRenderingUtils.renderIsometricDiamondBatchWithZOffset(
         layerGraphics, positions, this.engine,

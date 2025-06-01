@@ -1,7 +1,7 @@
 import { Graphics, FederatedPointerEvent, Container } from 'pixi.js';
 import { battlemapStore, battlemapActions } from '../store';
 import { BattlemapEngine, LayerName } from './BattlemapEngine';
-import { TileSummary } from '../types/battlemap_types';
+import { TileSummary, WallSummary } from '../types/battlemap_types';
 import { Position } from '../types/common';
 import { IsometricGridRenderer } from './renderers/IsometricGridRenderer';
 import { IsometricDirection } from './managers/IsometricSpriteManager';
@@ -116,7 +116,7 @@ export class IsometricInteractionsManager {
    * Set up keyboard shortcuts for layer switching and other controls
    */
   private setupKeyboardShortcuts(): void {
-    // Set up keyboard event listener for layer switching (1-9) and sprite rotation (Z/X)
+    // Set up keyboard event listener for layer switching (1-9), sprite rotation (Z/X), and mode toggle (Q)
     this.keyDownHandler = (event: KeyboardEvent) => {
       // Skip if modifier keys are pressed or controls are locked
       if (event.ctrlKey || event.altKey || event.metaKey || battlemapStore.controls.isLocked) return;
@@ -146,9 +146,12 @@ export class IsometricInteractionsManager {
         }
       }
       
-      // NEW: Handle sprite rotation with Z/X keys
-      if (key === 'z' || key === 'x') {
-        const currentDirection = battlemapStore.controls.isometricEditor.selectedSpriteDirection;
+      // Handle sprite rotation with Z/X keys
+      else if (key === 'z' || key === 'x') {
+        const isWallMode = battlemapStore.controls.isometricEditor.wallMode;
+        const currentDirection = isWallMode 
+          ? battlemapStore.controls.isometricEditor.wallSpriteDirection
+          : battlemapStore.controls.isometricEditor.selectedSpriteDirection;
         let newDirection: number;
         
         if (key === 'z') {
@@ -160,13 +163,29 @@ export class IsometricInteractionsManager {
         }
         
         event.preventDefault();
-        battlemapActions.setSelectedSpriteDirection(newDirection as IsometricDirection);
-        console.log(`[IsometricInteractionsManager] Rotated sprite ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection}`);
+        
+        if (isWallMode) {
+          // For walls: update BOTH sprite direction (how it faces) AND placement direction (which edge)
+          battlemapActions.setWallSpriteDirection(newDirection as IsometricDirection);
+          battlemapActions.setWallPlacementDirection(newDirection as IsometricDirection);
+          console.log(`[IsometricInteractionsManager] Rotated wall ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection} (both sprite facing and placement edge)`);
+        } else {
+          battlemapActions.setSelectedSpriteDirection(newDirection as IsometricDirection);
+          console.log(`[IsometricInteractionsManager] Rotated block sprite ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection}`);
+        }
+      }
+      
+      // NEW: Handle mode toggle with Q key
+      else if (key === 'q') {
+        event.preventDefault();
+        battlemapActions.toggleWallMode();
+        const newMode = !battlemapStore.controls.isometricEditor.wallMode;
+        console.log(`[IsometricInteractionsManager] Q: Toggled to ${newMode ? 'Wall' : 'Block'} Mode`);
       }
     };
     
     window.addEventListener('keydown', this.keyDownHandler);
-    console.log('[IsometricInteractionsManager] Keyboard shortcuts set up (1-9 for layers, Z/X for sprite rotation)');
+    console.log('[IsometricInteractionsManager] Keyboard shortcuts set up (1-9 for layers, Z/X for sprite rotation, Q for mode toggle)');
   }
   
   /**
@@ -198,6 +217,32 @@ export class IsometricInteractionsManager {
     // Use the isometric grid renderer's coordinate conversion
     return this.isometricGridRenderer.screenToGrid(pixelX, pixelY);
   }
+
+  /**
+   * Determine which wall edge to place based on mouse position within the grid cell
+   */
+  private determineWallEdge(mouseX: number, mouseY: number, gridX: number, gridY: number): IsometricDirection {
+    // Get the screen position of the grid cell center
+    const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
+    if (!gridResult) return IsometricDirection.SOUTH; // fallback
+    
+    // Simple approach: divide the grid cell into 4 triangular zones
+    // Calculate relative position within the cell (0 to 1)
+    // For now, use a simple approach based on click position relative to cell center
+    
+    // Get the center of the grid cell in screen coordinates
+    // This is a simplified approach - we'll determine edge based on which quadrant of the cell was clicked
+    
+    // For isometric grid, we can determine edge by:
+    // - North: upper triangular area
+    // - East: right triangular area  
+    // - South: lower triangular area
+    // - West: left triangular area
+    
+    // For now, use a simple rotation based on current wall placement direction
+    // This lets the user control which edge via the UI controls
+    return battlemapStore.controls.isometricEditor.wallPlacementDirection;
+  }
   
   /**
    * Handle pointer down events (mouse clicks)
@@ -216,45 +261,130 @@ export class IsometricInteractionsManager {
     const mouseX = event.global.x;
     const mouseY = event.global.y;
     
-    const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
-    if (!gridResult || !gridResult.inBounds) return;
-    
-    const { gridX, gridY } = gridResult;
     const snap = battlemapStore;
     
-    // Determine snap position based on button clicked
+    // Determine button clicked
     const isRightClick = event.button === 2; // Right mouse button
     const isMiddleClick = event.button === 1; // Middle mouse button
-    const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
     
-    console.log(`[IsometricInteractionsManager] ${isMiddleClick ? 'Middle' : (isRightClick ? 'Right' : 'Left')} click at screen (${mouseX}, ${mouseY}) -> grid (${gridX}, ${gridY}) -> snap ${snapPosition}`);
+    console.log(`[IsometricInteractionsManager] ${isMiddleClick ? 'Middle' : (isRightClick ? 'Right' : 'Left')} click at screen (${mouseX}, ${mouseY})`);
     
-    // Handle middle click deletion
-    if (isMiddleClick && snap.controls.isEditing && !snap.controls.isLocked) {
-      this.handleTileDelete(gridX, gridY);
-      
-      // NEW: Start middle-click drag for continuous deletion
-      this.isMiddleClickDragging = true;
-      this.dragStartPosition = { x: mouseX, y: mouseY };
-      this.lastDragGridPosition = { x: gridX, y: gridY };
-      console.log(`[IsometricInteractionsManager] Started middle-click drag deletion at (${gridX}, ${gridY})`);
-      return;
-    }
-    
-    // Handle tile editing if enabled and not locked
+    // NEW: Handle wall mode vs block mode
     if (snap.controls.isEditing && !snap.controls.isLocked) {
-      this.handleTileEdit(gridX, gridY, snapPosition);
+      const isWallMode = snap.controls.isometricEditor.wallMode;
       
-      // NEW: Start drag tracking for left/right clicks
-      if (!isMiddleClick) {
-        this.isDragging = true;
-        this.dragStartPosition = { x: mouseX, y: mouseY };
-        this.lastDragGridPosition = { x: gridX, y: gridY };
-        console.log(`[IsometricInteractionsManager] Started drag painting at (${gridX}, ${gridY})`);
+      // Use the same coordinate system for both walls and blocks
+      const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
+      if (!gridResult || !gridResult.inBounds) return;
+      
+      const { gridX, gridY } = gridResult;
+      
+      if (isWallMode) {
+        // WALL MODE: Determine which edge and handle wall placement
+        const wallEdge = this.determineWallEdge(mouseX, mouseY, gridX, gridY);
+        const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
+        
+        if (isMiddleClick) {
+          this.handleWallDelete(gridX, gridY, wallEdge);
+          
+          // Start middle-click drag for continuous wall deletion
+          this.isMiddleClickDragging = true;
+          this.dragStartPosition = { x: mouseX, y: mouseY };
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Started middle-click wall deletion at (${gridX}, ${gridY}, ${wallEdge})`);
+        } else {
+          // Left/right click: Place wall
+          this.handleWallEdit(gridX, gridY, wallEdge, snapPosition);
+          
+          // Start drag tracking for wall painting
+          this.isDragging = true;
+          this.dragStartPosition = { x: mouseX, y: mouseY };
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Started wall drag painting at (${gridX}, ${gridY}, ${wallEdge})`);
+        }
+      } else {
+        // BLOCK MODE: Handle center-based tile placement (existing logic)
+        const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
+        
+        // Handle middle click deletion for blocks
+        if (isMiddleClick) {
+          this.handleTileDelete(gridX, gridY);
+          
+          // Start middle-click drag for continuous deletion
+          this.isMiddleClickDragging = true;
+          this.dragStartPosition = { x: mouseX, y: mouseY };
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Started middle-click drag deletion at (${gridX}, ${gridY})`);
+          return;
+        }
+        
+        // Handle tile placement for blocks
+        this.handleTileEdit(gridX, gridY, snapPosition);
+        
+        // Start drag tracking for left/right clicks
+        if (!isMiddleClick) {
+          this.isDragging = true;
+          this.dragStartPosition = { x: mouseX, y: mouseY };
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Started drag painting at (${gridX}, ${gridY})`);
+        }
       }
     }
   }
   
+  /**
+   * Handle wall editing (placement)
+   */
+  private handleWallEdit(gridX: number, gridY: number, edge: IsometricDirection, snapPosition: 'above' | 'below'): void {
+    const isometricEditor = battlemapStore.controls.isometricEditor;
+    
+    if (!isometricEditor.selectedSpriteName) {
+      console.warn('[IsometricInteractionsManager] No sprite selected for wall placement. Please select a wall sprite first.');
+      return;
+    }
+    
+    // Create wall object
+    const newWall: WallSummary = {
+      uuid: `wall_${gridX}_${gridY}_${isometricEditor.selectedZLevel}_${edge}_${Date.now()}`,
+      name: isometricEditor.selectedSpriteName,
+      position: [gridX, gridY] as const,
+      z_level: isometricEditor.selectedZLevel,
+      wall_direction: edge, // Which edge the wall is on
+      sprite_name: isometricEditor.selectedSpriteName,
+      sprite_direction: isometricEditor.wallSpriteDirection, // Which way the wall sprite faces
+      wall_type: isometricEditor.selectedWallType,
+      blocks_movement: this.getWallBlocksMovement(isometricEditor.selectedSpriteName),
+      visible: true,
+      snap_position: snapPosition,
+    };
+    
+    battlemapActions.addWall(newWall);
+    console.log(`[IsometricInteractionsManager] Created wall at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel}, Edge:${edge}) with sprite: ${isometricEditor.selectedSpriteName}`);
+  }
+  
+  /**
+   * Handle wall deletion (middle mouse click)
+   */
+  private handleWallDelete(gridX: number, gridY: number, edge: IsometricDirection): void {
+    const isometricEditor = battlemapStore.controls.isometricEditor;
+    
+    // Delete wall at the active Z level and edge
+    battlemapActions.removeWall(gridX, gridY, isometricEditor.selectedZLevel, edge);
+    console.log(`[IsometricInteractionsManager] Middle-click deleted wall at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel}, Edge:${edge})`);
+  }
+  
+  /**
+   * Get whether wall blocks movement based on sprite name
+   */
+  private getWallBlocksMovement(spriteName: string): boolean {
+    // Most walls block movement
+    const name = spriteName.toLowerCase();
+    if (name.includes('fence') || name.includes('gate') || name.includes('opening')) {
+      return false; // Fences and gates might not block movement
+    }
+    return true; // Default: walls block movement
+  }
+
   /**
    * Handle pointer move events (mouse move for drag painting)
    */
@@ -262,7 +392,10 @@ export class IsometricInteractionsManager {
     const mouseX = event.global.x;
     const mouseY = event.global.y;
     
-    // Update hovered cell for highlight
+    const snap = battlemapStore;
+    const isWallMode = snap.controls.isometricEditor.wallMode;
+    
+    // Use the same coordinate system for both walls and blocks
     const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
     if (gridResult?.inBounds) {
       battlemapActions.setHoveredCell(gridResult.gridX, gridResult.gridY);
@@ -270,34 +403,64 @@ export class IsometricInteractionsManager {
       battlemapActions.setHoveredCell(-1, -1);
     }
     
-    // NEW: Handle middle-click drag deletion
-    if (this.isMiddleClickDragging && gridResult?.inBounds && battlemapStore.controls.isEditing && !battlemapStore.controls.isLocked) {
-      const { gridX, gridY } = gridResult;
-      
-      // Only delete if we moved to a different grid cell
-      if (this.lastDragGridPosition && 
-          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+    if (isWallMode) {
+      // WALL MODE: Handle wall drag operations
+      if (this.isMiddleClickDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
+        const { gridX, gridY } = gridResult;
+        const wallEdge = this.determineWallEdge(mouseX, mouseY, gridX, gridY);
         
-        this.handleTileDelete(gridX, gridY);
-        this.lastDragGridPosition = { x: gridX, y: gridY };
-        console.log(`[IsometricInteractionsManager] Middle-click drag deleted tile at (${gridX}, ${gridY})`);
+        // Only delete if we moved to a different grid cell
+        if (this.lastDragGridPosition && 
+            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+          
+          this.handleWallDelete(gridX, gridY, wallEdge);
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Middle-click drag deleted wall at (${gridX}, ${gridY}, ${wallEdge})`);
+        }
       }
-    }
-    
-    // NEW: Handle left/right-click drag painting
-    if (this.isDragging && gridResult?.inBounds && battlemapStore.controls.isEditing && !battlemapStore.controls.isLocked) {
-      const { gridX, gridY } = gridResult;
       
-      // Only paint if we moved to a different grid cell
-      if (this.lastDragGridPosition && 
-          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+      if (this.isDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
+        const { gridX, gridY } = gridResult;
+        const wallEdge = this.determineWallEdge(mouseX, mouseY, gridX, gridY);
         
-        // Use the same snap position as the initial click (above for left click, below for right click)
-        const snapPosition: 'above' | 'below' = 'above'; // Default to above for drag
+        // Only paint if we moved to a different grid cell
+        if (this.lastDragGridPosition && 
+            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+          
+          this.handleWallEdit(gridX, gridY, wallEdge, 'above');
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Drag painted wall at (${gridX}, ${gridY}, ${wallEdge})`);
+        }
+      }
+    } else {
+      // BLOCK MODE: Handle block drag operations (existing logic)
+      if (this.isMiddleClickDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
+        const { gridX, gridY } = gridResult;
         
-        this.handleTileEdit(gridX, gridY, snapPosition);
-        this.lastDragGridPosition = { x: gridX, y: gridY };
-        console.log(`[IsometricInteractionsManager] Drag painted tile at (${gridX}, ${gridY})`);
+        // Only delete if we moved to a different grid cell
+        if (this.lastDragGridPosition && 
+            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+          
+          this.handleTileDelete(gridX, gridY);
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Middle-click drag deleted tile at (${gridX}, ${gridY})`);
+        }
+      }
+      
+      if (this.isDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
+        const { gridX, gridY } = gridResult;
+        
+        // Only paint if we moved to a different grid cell
+        if (this.lastDragGridPosition && 
+            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+          
+          // Use default snap position for drag
+          const snapPosition: 'above' | 'below' = 'above';
+          
+          this.handleTileEdit(gridX, gridY, snapPosition);
+          this.lastDragGridPosition = { x: gridX, y: gridY };
+          console.log(`[IsometricInteractionsManager] Drag painted tile at (${gridX}, ${gridY})`);
+        }
       }
     }
   }
@@ -429,8 +592,8 @@ export class IsometricInteractionsManager {
     // Delete tile at the active Z level
     battlemapActions.removeIsometricTile(gridX, gridY, isometricEditor.selectedZLevel);
     console.log(`[IsometricInteractionsManager] Middle-click deleted tile at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel})`);
-      }
-      
+  }
+  
   /**
    * Get walkable state based on sprite name
    */
