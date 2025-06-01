@@ -265,6 +265,126 @@ const IsometricConfigurationPanel: React.FC<IsometricConfigurationPanelProps> = 
         </Box>
       </Box>
 
+      {/* NEW: Ratio Lock Toggle */}
+      <Box sx={{ mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={viewSnap.isRatioLocked}
+              onChange={() => battlemapActions.toggleRatioLock()}
+              disabled={isLocked}
+              sx={{
+                '& .MuiSwitch-switchBase.Mui-checked': { color: '#2196F3' },
+                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#2196F3' }
+              }}
+            />
+          }
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" sx={{ color: viewSnap.isRatioLocked ? '#2196F3' : 'white' }}>
+                {viewSnap.isRatioLocked ? '🔒 Ratio Locked' : '🔓 Ratio Free'}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#2196F3', fontSize: '0.65rem' }}>
+                {viewSnap.isRatioLocked ? 'Grid & Sprite move together' : 'Grid & Sprite independent'}
+              </Typography>
+            </Box>
+          }
+        />
+      </Box>
+
+      {/* NEW: Z-Layer Heights */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" sx={{ mb: 1, color: '#9C27B0' }}>
+          🏔️ Z-Layer Heights:
+        </Typography>
+        
+        {viewSnap.zLayerHeights.map((layer, index) => (
+          <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <Typography variant="body2" sx={{ 
+              minWidth: '60px', 
+              color: `#${layer.color.toString(16).padStart(6, '0')}`,
+              fontSize: '0.8rem'
+            }}>
+              {layer.name}:
+            </Typography>
+            <TextField
+              type="number"
+              value={layer.verticalOffset}
+              onChange={(e) => {
+                const value = parseInt(e.target.value) || 0;
+                battlemapActions.setZLayerHeight(index, value);
+              }}
+              onFocus={() => console.log(`[IsometricConfigurationPanel] Z-layer ${index} height input focused`)}
+              onBlur={() => console.log(`[IsometricConfigurationPanel] Z-layer ${index} height input blurred`)}
+              disabled={isLocked}
+              size="small"
+              sx={{ 
+                width: '80px',
+                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '4px 6px' },
+                '& .MuiOutlinedInput-root': { 
+                  '& fieldset': { borderColor: `#${layer.color.toString(16).padStart(6, '0')}` },
+                  '&:hover fieldset': { borderColor: `#${layer.color.toString(16).padStart(6, '0')}` }
+                }
+              }}
+              inputProps={{ min: 0, max: 500, step: 1 }}
+            />
+            <Typography variant="caption" sx={{ color: `#${layer.color.toString(16).padStart(6, '0')}` }}>px</Typography>
+            
+            {viewSnap.isRatioLocked && (
+              <Typography variant="caption" sx={{ color: '#2196F3', fontSize: '0.6rem' }}>
+                🔒
+              </Typography>
+            )}
+          </Box>
+        ))}
+        
+        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => battlemapActions.resetZLayerHeights()}
+            disabled={isLocked}
+            size="small"
+            sx={{
+              fontSize: '0.6rem',
+              padding: '2px 8px',
+              borderColor: '#9C27B0',
+              color: '#9C27B0',
+              '&:hover': { borderColor: '#7B1FA2', color: '#7B1FA2' }
+            }}
+          >
+            🔄 Reset to Defaults
+          </Button>
+          
+          <Button
+            variant="outlined"
+            onClick={() => battlemapActions.setBaseValues()}
+            disabled={isLocked}
+            size="small"
+            sx={{
+              fontSize: '0.6rem',
+              padding: '2px 8px',
+              borderColor: '#2196F3',
+              color: '#2196F3',
+              '&:hover': { borderColor: '#1976D2', color: '#1976D2' }
+            }}
+          >
+            📌 Set as Base
+          </Button>
+        </Box>
+        
+        <Typography variant="caption" sx={{ 
+          color: '#9C27B0', 
+          fontSize: '0.6rem', 
+          display: 'block', 
+          mt: 0.5 
+        }}>
+          {viewSnap.isRatioLocked 
+            ? '🔒 Heights scale with Grid/Sprite when ratio locked'
+            : '💡 Individual layer vertical offsets (independent scaling)'
+          }
+        </Typography>
+      </Box>
+
       {/* Vertical Bias Computation Mode */}
       <Box sx={{ mb: 2 }}>
         <FormControl fullWidth size="small">

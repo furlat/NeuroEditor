@@ -73,6 +73,12 @@ export interface ViewState {
   // Manual grid and sprite controls
   gridDiamondWidth: number; // Width of the diamond grid in pixels (default reference)
   spriteScale: number; // Scale multiplier for sprites (independent of grid)
+  // NEW: Ratio lock for keeping grid and sprite scale in sync
+  isRatioLocked: boolean; // When true, changing grid or sprite scale maintains their ratio
+  // NEW: Base values for ratio lock scaling
+  baseGridDiamondWidth: number; // Original grid width for ratio calculations
+  baseSpriteScale: number; // Original sprite scale for ratio calculations
+  baseZLayerHeights: Array<{ z: number; verticalOffset: number; name: string; color: number }>; // Original Z-layer heights for ratio calculations
   // REFACTORED: 4-directional invisible margins (default reference values)
   invisibleMarginUp: number;    // Top margin for sprite positioning
   invisibleMarginDown: number;  // Bottom margin for sprite positioning  
@@ -131,6 +137,10 @@ const battlemapStore = proxy<BattlemapStoreState>({
     zoomLevel: 1.0,
     gridDiamondWidth: 400, // Updated to user's preferred value (was 402)
     spriteScale: 1.0, // Keep at original size
+    isRatioLocked: true, // NEW: Default to true as requested
+    baseGridDiamondWidth: 400, // Original grid width for ratio calculations
+    baseSpriteScale: 1.0, // Original sprite scale for ratio calculations
+    baseZLayerHeights: DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer })), // Original Z-layer heights for ratio calculations
     invisibleMarginUp: 8, // User's working top margin
     invisibleMarginDown: 8, // User's working bottom margin
     invisibleMarginLeft: 8, // User's working left margin
@@ -296,10 +306,54 @@ const battlemapActions = {
   
   setGridDiamondWidth: (width: number) => {
     battlemapStore.view.gridDiamondWidth = width;
+    
+    // NEW: If ratio lock is enabled, adjust sprite scale and Z-layer heights proportionally from base values
+    if (battlemapStore.view.isRatioLocked) {
+      const ratio = width / battlemapStore.view.baseGridDiamondWidth;
+      
+      // Scale sprite scale from base value
+      battlemapStore.view.spriteScale = battlemapStore.view.baseSpriteScale * ratio;
+      
+      // Scale Z-layer heights from base values
+      battlemapStore.view.zLayerHeights = battlemapStore.view.baseZLayerHeights.map(layer => ({
+        ...layer,
+        verticalOffset: Math.round(layer.verticalOffset * ratio)
+      }));
+      
+      console.log(`[battlemapStore] Ratio lock: Grid width changed to ${width}, ratio ${ratio.toFixed(3)}, adjusted sprite scale to ${battlemapStore.view.spriteScale.toFixed(2)}, scaled Z-layer heights from base values`);
+    }
   },
   
   setSpriteScale: (scale: number) => {
-    battlemapStore.view.spriteScale = Math.max(0.1, Math.min(5.0, scale));
+    const clampedScale = Math.max(0.1, Math.min(5.0, scale));
+    battlemapStore.view.spriteScale = clampedScale;
+    
+    // NEW: If ratio lock is enabled, adjust grid diamond width and Z-layer heights proportionally from base values
+    if (battlemapStore.view.isRatioLocked) {
+      const ratio = clampedScale / battlemapStore.view.baseSpriteScale;
+      
+      // Scale grid width from base value
+      battlemapStore.view.gridDiamondWidth = Math.round(battlemapStore.view.baseGridDiamondWidth * ratio);
+      
+      // Scale Z-layer heights from base values
+      battlemapStore.view.zLayerHeights = battlemapStore.view.baseZLayerHeights.map(layer => ({
+        ...layer,
+        verticalOffset: Math.round(layer.verticalOffset * ratio)
+      }));
+      
+      console.log(`[battlemapStore] Ratio lock: Sprite scale changed to ${clampedScale}, ratio ${ratio.toFixed(3)}, adjusted grid width to ${battlemapStore.view.gridDiamondWidth}, scaled Z-layer heights from base values`);
+    }
+  },
+  
+  // NEW: Ratio lock management
+  setRatioLocked: (locked: boolean) => {
+    battlemapStore.view.isRatioLocked = locked;
+    console.log(`[battlemapStore] Ratio lock ${locked ? 'enabled' : 'disabled'} - Grid: ${battlemapStore.view.gridDiamondWidth}px, Sprite: ${battlemapStore.view.spriteScale}x`);
+  },
+  
+  toggleRatioLock: () => {
+    const newLocked = !battlemapStore.view.isRatioLocked;
+    battlemapActions.setRatioLocked(newLocked);
   },
   
   setInvisibleMarginUp: (margin: number) => {
@@ -684,7 +738,14 @@ const battlemapActions = {
   setZLayerHeight: (layerIndex: number, verticalOffset: number) => {
     if (layerIndex >= 0 && layerIndex < battlemapStore.view.zLayerHeights.length) {
       battlemapStore.view.zLayerHeights[layerIndex].verticalOffset = verticalOffset;
-      console.log(`[battlemapStore] Z-layer ${layerIndex} height set to: ${verticalOffset}px - FORCING RENDER`);
+      
+      // NEW: Also update base values when ratio lock is off (manual adjustment)
+      if (!battlemapStore.view.isRatioLocked) {
+        battlemapStore.view.baseZLayerHeights[layerIndex].verticalOffset = verticalOffset;
+        console.log(`[battlemapStore] Z-layer ${layerIndex} height set to: ${verticalOffset}px (updated base value)`);
+      } else {
+        console.log(`[battlemapStore] Z-layer ${layerIndex} height set to: ${verticalOffset}px (ratio lock active, base unchanged)`);
+      }
       
       // Force immediate re-render by triggering a dummy change
       const currentOffset = battlemapStore.view.offset;
@@ -699,8 +760,10 @@ const battlemapActions = {
   },
   
   resetZLayerHeights: () => {
-    battlemapStore.view.zLayerHeights = DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer }));
-    console.log('[battlemapStore] Z-layer heights reset to defaults - FORCING RENDER');
+    const defaultHeights = DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer }));
+    battlemapStore.view.zLayerHeights = defaultHeights;
+    battlemapStore.view.baseZLayerHeights = defaultHeights.map(layer => ({ ...layer }));
+    console.log('[battlemapStore] Z-layer heights reset to defaults (updated both current and base values)');
     
     // Force immediate re-render by triggering a dummy change
     const currentOffset = battlemapStore.view.offset;
@@ -711,6 +774,23 @@ const battlemapActions = {
       if ((window as any).__forceGridRender) (window as any).__forceGridRender();
       if ((window as any).__forceTileRender) (window as any).__forceTileRender();
     }, 0);
+  },
+  
+  // NEW: Base value management for ratio lock
+  setBaseValues: () => {
+    // Capture current values as new base values
+    battlemapStore.view.baseGridDiamondWidth = battlemapStore.view.gridDiamondWidth;
+    battlemapStore.view.baseSpriteScale = battlemapStore.view.spriteScale;
+    battlemapStore.view.baseZLayerHeights = battlemapStore.view.zLayerHeights.map(layer => ({ ...layer }));
+    console.log('[battlemapStore] Base values updated from current values');
+  },
+  
+  resetBaseValues: () => {
+    // Reset base values to defaults
+    battlemapStore.view.baseGridDiamondWidth = 400;
+    battlemapStore.view.baseSpriteScale = 1.0;
+    battlemapStore.view.baseZLayerHeights = DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer }));
+    console.log('[battlemapStore] Base values reset to defaults');
   },
   
   // NEW: Vertical bias computation method

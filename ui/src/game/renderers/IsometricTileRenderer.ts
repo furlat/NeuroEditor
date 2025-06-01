@@ -367,8 +367,9 @@ export class IsometricTileRenderer extends AbstractRenderer {
     }
 
     // Apply positioning adjustments using per-sprite settings
-    // All values are base offsets at 100% sprite scale, scaled by both spriteScale and zoomLevel
-    const scaleFactor = snap.view.spriteScale * snap.view.zoomLevel;
+    // FIXED: Scale positioning offsets by sprite scale independently, then apply zoom to final positioning
+    const spriteScale = snap.view.spriteScale;
+    const zoomLevel = snap.view.zoomLevel;
     
     // EXACT USER SPECIFICATION: Get per-sprite-type positioning settings
     let spriteTypeSettings = battlemapActions.getSpriteTypeSettings(spriteName);
@@ -404,21 +405,22 @@ export class IsometricTileRenderer extends AbstractRenderer {
     // For positioning, use the down margin as the primary positioning margin
     const finalInvisibleMargin = spriteTypeSettings.invisibleMarginDown;
     
-    // Apply positioning based on snap position
+    // FIXED: Apply positioning based on snap position with proper independent scaling
+    // First scale the base offsets by sprite scale, then apply zoom to final positioning
     if (tile.snap_position === 'above') {
-      // Above positioning: apply vertical bias + invisible margin
-      sprite.y += (verticalBias + finalInvisibleMargin) * scaleFactor;
+      // Above positioning: apply vertical bias + invisible margin, scaled by sprite scale first
+      const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
     } else {
       // Below positioning: only apply invisible margin to snap to grid diamond bottom
-      sprite.y += finalInvisibleMargin * scaleFactor;
+      const spriteScaledOffset = finalInvisibleMargin * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
     }
 
     // Set anchor to center bottom for proper isometric positioning
     sprite.anchor.set(0.5, 1.0);
 
     // Apply both sprite scale AND zoom level for consistent scaling with grid
-    const spriteScale = snap.view.spriteScale;
-    const zoomLevel = snap.view.zoomLevel;
     const finalScale = spriteScale * zoomLevel; // Both sprite scale and zoom
     
     sprite.scale.set(finalScale);
@@ -462,10 +464,13 @@ export class IsometricTileRenderer extends AbstractRenderer {
       const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
       const actualSpriteWidth = spriteFrameSize?.width || 128;
       const actualSpriteHeight = spriteFrameSize?.height || 128;
-      const invisibleMarginBase = finalInvisibleMargin; // Use final values
-      const invisibleMarginScaled = invisibleMarginBase * scaleFactor;
-      const verticalOffsetBase = verticalBias; // Use final values
-      const verticalOffsetScaled = verticalOffsetBase * scaleFactor;
+      const invisibleMarginBase = finalInvisibleMargin;
+      const verticalOffsetBase = verticalBias;
+      // FIXED: Show separate scaling factors
+      const spriteScaledMargin = invisibleMarginBase * spriteScale;
+      const finalScaledMargin = spriteScaledMargin * zoomLevel;
+      const spriteScaledVerticalOffset = verticalOffsetBase * spriteScale;
+      const finalScaledVerticalOffset = spriteScaledVerticalOffset * zoomLevel;
       const layerConfig = tile.z_level < Z_LAYER_CONFIG.maxLayers ? battlemapActions.getAllZLayerConfigs()[tile.z_level] : { name: 'Invalid', verticalOffset: 0 };
       const isCurrentSprite = spriteName === snap.controls.isometricEditor.selectedSpriteName;
       
@@ -475,9 +480,9 @@ export class IsometricTileRenderer extends AbstractRenderer {
         const selectedSpriteFrameSize = isometricSpriteManager.getSpriteFrameSize(selectedSpriteName);
         const selectedSpriteWidth = selectedSpriteFrameSize?.width || 128;
         const selectedSpriteHeight = selectedSpriteFrameSize?.height || 128;
-        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px→${tile.snap_position === 'above' ? verticalOffsetScaled.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px→${invisibleMarginScaled.toFixed(1)}px] | Selected: ${selectedSpriteName} (${selectedSpriteWidth}x${selectedSpriteHeight}px) | Grid: ${isometricOffset.tileSize}px`);
+        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px*${spriteScale}*${zoomLevel}→${tile.snap_position === 'above' ? finalScaledVerticalOffset.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px*${spriteScale}*${zoomLevel}→${finalScaledMargin.toFixed(1)}px] | Selected: ${selectedSpriteName} (${selectedSpriteWidth}x${selectedSpriteHeight}px) | Grid: ${isometricOffset.tileSize}px`);
       } else {
-        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px→${tile.snap_position === 'above' ? verticalOffsetScaled.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px→${invisibleMarginScaled.toFixed(1)}px] | Grid: ${isometricOffset.tileSize}px`);
+        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px*${spriteScale}*${zoomLevel}→${tile.snap_position === 'above' ? finalScaledVerticalOffset.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px*${spriteScale}*${zoomLevel}→${finalScaledMargin.toFixed(1)}px] | Grid: ${isometricOffset.tileSize}px`);
       }
     }
 

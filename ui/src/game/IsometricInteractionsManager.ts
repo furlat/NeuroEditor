@@ -320,7 +320,7 @@ export class IsometricInteractionsManager {
       console.log('[IsometricInteractionsManager] Stopped middle-click drag deletion');
     }
   }
-  
+
   /**
    * Handle pointer leave events (stop drag painting when mouse leaves area)
    */
@@ -332,7 +332,7 @@ export class IsometricInteractionsManager {
       this.lastDragGridPosition = null;
       console.log('[IsometricInteractionsManager] Stopped drag painting (mouse left area)');
     }
-    
+
     if (this.isMiddleClickDragging) {
       this.isMiddleClickDragging = false;
       this.dragStartPosition = null;
@@ -398,8 +398,8 @@ export class IsometricInteractionsManager {
         // Check bounds
         if (targetX < 0 || targetY < 0 || targetX >= battlemapStore.grid.width || targetY >= battlemapStore.grid.height) {
           continue;
-        }
-
+      }
+      
         // Create isometric tile
         const newTile: TileSummary = {
           uuid: `tile_${targetX}_${targetY}_${isometricEditor.selectedZLevel}_${Date.now()}`,
@@ -419,7 +419,7 @@ export class IsometricInteractionsManager {
       }
     }
   }
-  
+
   /**
    * Handle tile deletion (middle mouse click)
    */
@@ -429,8 +429,8 @@ export class IsometricInteractionsManager {
     // Delete tile at the active Z level
     battlemapActions.removeIsometricTile(gridX, gridY, isometricEditor.selectedZLevel);
     console.log(`[IsometricInteractionsManager] Middle-click deleted tile at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel})`);
-  }
-  
+      }
+      
   /**
    * Get walkable state based on sprite name
    */
