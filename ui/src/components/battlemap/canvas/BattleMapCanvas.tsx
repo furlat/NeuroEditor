@@ -4,7 +4,6 @@ import { useGrid, useMapControls, useTileEditor } from '../../../hooks/battlemap
 import { battlemapStore, battlemapActions } from '../../../store';
 import { useSnapshot } from 'valtio';
 import { CanvasControls } from './CanvasControls';
-import TileEditorPanel from './TileEditorPanel';
 import { gameManager } from '../../../game';
 
 /**
@@ -238,7 +237,6 @@ const BattleMapCanvas: React.FC = () => {
     >
       {/* Canvas Controls - These remain as React components */}
       <CanvasControls />
-      {isEditorVisible && <TileEditorPanel isLocked={isLocked} />}
     </Box>
   );
 };

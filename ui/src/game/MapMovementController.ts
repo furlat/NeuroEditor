@@ -37,6 +37,17 @@ export class MovementController {
       // Skip if modifier keys are pressed or movement is locked
       if (e.ctrlKey || e.altKey || e.metaKey || battlemapStore.controls.isLocked) return;
       
+      // NEW: Skip if user is typing in any input field or textarea
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.hasAttribute('contenteditable')
+      )) {
+        console.log('[MovementController] Skipping WASD movement - user is typing in input field');
+        return;
+      }
+      
       const key = e.key.toLowerCase();
       if (['w', 'a', 's', 'd'].includes(key)) {
         e.preventDefault();

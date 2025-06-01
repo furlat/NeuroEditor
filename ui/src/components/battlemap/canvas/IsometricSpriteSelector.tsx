@@ -7,19 +7,17 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Chip,
-  Slider,
-  FormControlLabel,
-  Switch,
   TextField,
-  Divider
+  Divider,
+  Card,
+  CardMedia,
+  CardContent
 } from '@mui/material';
 import { 
   North as NorthIcon,
   East as EastIcon, 
   South as SouthIcon,
-  West as WestIcon,
-  Add as AddIcon,
-  Remove as RemoveIcon
+  West as WestIcon
 } from '@mui/icons-material';
 import { useSnapshot } from 'valtio';
 import { battlemapStore, battlemapActions } from '../../../store';
@@ -28,17 +26,193 @@ import {
   IsometricDirection, 
   SpriteCategory 
 } from '../../../game/managers/IsometricSpriteManager';
+import { Texture } from 'pixi.js';
 
 interface IsometricSpriteSelectorProps {
   isLocked: boolean;
 }
 
+// Get all sprite names from the blocks directory
+const getAllBlockSprites = (): string[] => {
+  const spriteNames = [
+    'UnderBlock_01',
+    'UnderBlock_Corner_01', 
+    'UnderBlock_Bottom_Tall_01',
+    'UnderBlock_Mid_Tall_01',
+    'FloorBlock_Tall_01',
+    'FloorBlock_Corner_Tall_01',
+    'FloorBlock_Top_Corner_01',
+    'FloorBlock_01',
+    'FloorBlock_Corner_01',
+    'GardenFloor_Path_03',
+    'GardenFloor_Path_01',
+    'GardenFloor_01',
+    'GardenFloor_HalfSquare_02',
+    'GardenFloor_HalfSquare_01',
+    'GardenFloor_Square_01',
+    'GardenFloor_Path_02',
+    'FloorBlock_Mid_01',
+    'FloorBlock_Bottom_01',
+    'UnderBlock_Tall_01',
+    'GardenBlock_Path_03',
+    'GardenBlock_Path_01',
+    'GardenBlock_01',
+    'GardenBlock_HalfSquare_02',
+    'GardenBlock_HalfSquare_01',
+    'GardenBlock_Square_01',
+    'GardenBlock_Path_02',
+    'UnderBlock_Corner_Tall_01',
+    'UnderFloor_01',
+    'Floor_01',
+    'Floor_Corner_01',
+    'FloorBlock_Top_01'
+  ];
+  
+  return spriteNames.sort(); // Sort alphabetically
+};
+
+// Component for sprite preview
+interface SpritePreviewProps {
+  spriteName: string;
+  isSelected: boolean;
+  onSelect: () => void;
+  disabled?: boolean;
+  direction: IsometricDirection;
+}
+
+const SpritePreview: React.FC<SpritePreviewProps> = ({ 
+  spriteName, 
+  isSelected, 
+  onSelect, 
+  disabled = false,
+  direction
+}) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Generate preview URL for the sprite
+    const generatePreview = () => {
+      try {
+        const texture = isometricSpriteManager.getSpriteTexture(spriteName, direction);
+        if (texture && texture.source) {
+          // Create a canvas to generate a preview image
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx && texture.source.resource) {
+            const img = texture.source.resource as HTMLImageElement;
+            
+            // Set canvas size for preview (small)
+            canvas.width = 64;
+            canvas.height = 64;
+            
+            // Calculate source rectangle for the selected direction
+            const frameWidth = img.width / 4;
+            const frameHeight = img.height;
+            
+            // Calculate frame index based on direction
+            let frameIndex = 0;
+            switch (direction) {
+              case IsometricDirection.NORTH: frameIndex = 0; break;
+              case IsometricDirection.EAST: frameIndex = 1; break;
+              case IsometricDirection.SOUTH: frameIndex = 2; break;
+              case IsometricDirection.WEST: frameIndex = 3; break;
+            }
+            
+            const sourceX = frameIndex * frameWidth;
+            
+            // Draw the sprite frame scaled down
+            ctx.drawImage(
+              img,
+              sourceX, 0, frameWidth, frameHeight, // Source rectangle
+              0, 0, 64, 64 // Destination rectangle
+            );
+            
+            setPreviewUrl(canvas.toDataURL());
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to generate preview for ${spriteName} (${direction}):`, error);
+        setPreviewUrl(null);
+      }
+    };
+
+    // Wait a bit for textures to load, then generate preview
+    const timeout = setTimeout(generatePreview, 100);
+    return () => clearTimeout(timeout);
+  }, [spriteName, direction]);
+
+  return (
+    <Card
+      sx={{
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.5 : 1.0,
+        border: isSelected ? '2px solid #2196F3' : '1px solid rgba(255,255,255,0.2)',
+        backgroundColor: isSelected ? 'rgba(33, 150, 243, 0.1)' : 'rgba(0,0,0,0.7)',
+        '&:hover': disabled ? {} : {
+          border: '2px solid #2196F3',
+          backgroundColor: 'rgba(33, 150, 243, 0.05)'
+        }
+      }}
+      onClick={disabled ? undefined : onSelect}
+    >
+      {previewUrl ? (
+        <CardMedia
+          component="img"
+          height="64"
+          image={previewUrl}
+          alt={`${spriteName} (${direction})`}
+          sx={{
+            objectFit: 'contain',
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            imageRendering: 'pixelated' // Keep pixel art crisp
+          }}
+        />
+      ) : (
+        <Box
+          sx={{
+            height: 64,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            color: 'rgba(255,255,255,0.3)'
+          }}
+        >
+          <Typography variant="caption" sx={{ fontSize: '0.6rem' }}>
+            Loading...
+          </Typography>
+        </Box>
+      )}
+      
+      <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+        <Typography 
+          variant="caption" 
+          sx={{ 
+            fontSize: '0.65rem',
+            color: isSelected ? '#2196F3' : 'white',
+            fontWeight: isSelected ? 'bold' : 'normal',
+            textAlign: 'center',
+            display: 'block',
+            lineHeight: 1.2
+          }}
+        >
+          {spriteName.replace(/_/g, ' ')}
+        </Typography>
+      </CardContent>
+    </Card>
+  );
+};
+
 const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLocked }) => {
-  const snap = useSnapshot(battlemapStore);
-  const { isometricEditor } = snap.controls;
+  // PERFORMANCE FIX: Only subscribe to isometric editor controls, not the entire store
+  // This avoids re-renders when offset changes during WASD movement
+  const controlsSnap = useSnapshot(battlemapStore.controls);
+  const isometricEditor = controlsSnap.isometricEditor;
   
   const [availableSprites, setAvailableSprites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchFilter, setSearchFilter] = useState('');
 
   // Load available sprites when component mounts
   useEffect(() => {
@@ -46,7 +220,13 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
       setIsLoading(true);
       try {
         await isometricSpriteManager.loadAll();
-        updateAvailableSprites(isometricEditor.selectedSpriteCategory);
+        const allBlockSprites = getAllBlockSprites();
+        setAvailableSprites(allBlockSprites);
+        
+        // Auto-select first sprite if none selected
+        if (!isometricEditor.selectedSpriteName && allBlockSprites.length > 0) {
+          handleSpriteSelect(allBlockSprites[0]);
+        }
       } catch (error) {
         console.error('Failed to load sprites:', error);
       } finally {
@@ -57,92 +237,31 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
     loadSprites();
   }, []);
 
-  // Update available sprites when category changes
-  useEffect(() => {
-    updateAvailableSprites(isometricEditor.selectedSpriteCategory);
-  }, [isometricEditor.selectedSpriteCategory]);
-
-  const updateAvailableSprites = (category: SpriteCategory) => {
-    const sprites = isometricSpriteManager.getSpritesInCategory(category);
-    setAvailableSprites(sprites);
-    
-    // Auto-select first sprite if none selected or if current selection is not in the new category
-    if (!isometricEditor.selectedSpriteName || !sprites.includes(isometricEditor.selectedSpriteName)) {
-      if (sprites.length > 0) {
-        battlemapActions.setSelectedSprite(sprites[0]);
-        console.log(`[IsometricSpriteSelector] Auto-selected sprite: ${sprites[0]} from category: ${category}`);
-      }
-    }
-  };
-
-  const handleCategoryChange = (category: SpriteCategory) => {
-    battlemapActions.setSelectedSpriteCategory(category);
-  };
-
   const handleSpriteSelect = (spriteName: string) => {
     battlemapActions.setSelectedSprite(spriteName);
+    
+    // Check if we have existing settings for this sprite
+    const existingSettings = controlsSnap.isometricEditor.spriteTypeSettings[spriteName];
+    
+    if (!existingSettings) {
+      // Auto-calculate using user's exact formula for new sprites
+      const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+      if (spriteFrameSize) {
+        // Use the store's calculation function which includes current rounding method
+        const calculated = battlemapActions.calculateSpriteTypePositioning(spriteFrameSize.width, spriteFrameSize.height);
+        
+        // Save calculated settings
+        battlemapActions.setSpriteTypeSettings(spriteName, calculated);
+        
+        console.log(`[IsometricSpriteSelector] Auto-calculated settings for ${spriteName}:`, calculated);
+      }
+    } else {
+      console.log(`[IsometricSpriteSelector] Using existing settings for ${spriteName}:`, existingSettings);
+    }
   };
 
   const handleDirectionChange = (direction: IsometricDirection) => {
     battlemapActions.setSelectedSpriteDirection(direction);
-  };
-
-  const handleZLevelChange = (event: Event, newValue: number | number[]) => {
-    battlemapActions.setSelectedZLevel(newValue as number);
-  };
-
-  const handleBrushSizeChange = (event: Event, newValue: number | number[]) => {
-    battlemapActions.setBrushSize(newValue as number);
-  };
-
-  // Precise number input handlers
-  const handleGridWidthChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setGridDiamondWidth(value);
-    }
-  };
-
-  const handleSpriteScaleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value) && value >= 0.1 && value <= 5.0) {
-      battlemapActions.setSpriteScale(value);
-    }
-  };
-
-  const handleVerticalOffsetChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setSpriteVerticalOffset(value);
-    }
-  };
-
-  const handleInvisibleMarginChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setSpriteInvisibleMargin(value);
-    }
-  };
-
-  const handleCalcMarginUpChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setCalcMarginUp(value);
-    }
-  };
-
-  const handleCalcMarginLeftChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setCalcMarginLeft(value);
-    }
-  };
-
-  const handleCalcMarginRightChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      battlemapActions.setCalcMarginRight(value);
-    }
   };
 
   const getDirectionIcon = (direction: IsometricDirection) => {
@@ -153,6 +272,11 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
       case IsometricDirection.WEST: return <WestIcon />;
     }
   };
+
+  // Filter sprites based on search
+  const filteredSprites = availableSprites.filter(sprite =>
+    sprite.toLowerCase().includes(searchFilter.toLowerCase())
+  );
 
   if (isLoading) {
     return (
@@ -169,39 +293,53 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
       color: 'white',
       maxHeight: '80vh',
       overflow: 'auto',
-      width: '350px'
+      width: '420px'
     }}>
       <Typography variant="h6" gutterBottom>
-        🎨 Sprite Editor
+        🎨 Sprite Selection
       </Typography>
 
       {isLocked && (
         <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
-          ⚠️ Unlock the map to edit sprites
+          ⚠️ Unlock the map to select sprites
         </Typography>
       )}
 
-      {/* Category Selection */}
-      <ToggleButtonGroup
-        value={isometricEditor.selectedSpriteCategory}
-        exclusive
-        onChange={(_, value) => value && handleCategoryChange(value)}
-        size="small"
-        sx={{ mb: 2, width: '100%' }}
+      {/* Search Filter */}
+      <TextField
+        label="Search Sprites"
+        value={searchFilter}
+        onChange={(e) => setSearchFilter(e.target.value)}
+        onFocus={(e) => {
+          console.log('[IsometricSpriteSelector] Search focused - blocking WASD movement');
+        }}
+        onBlur={(e) => {
+          console.log('[IsometricSpriteSelector] Search blurred - enabling WASD movement');
+        }}
         disabled={isLocked}
-      >
-        <ToggleButton value={SpriteCategory.BLOCKS} sx={{ color: 'white', flex: 1 }}>
-          🧱 Blocks
-        </ToggleButton>
-        <ToggleButton value={SpriteCategory.WALLS} sx={{ color: 'white', flex: 1 }}>
-          🧱 Walls
-        </ToggleButton>
-      </ToggleButtonGroup>
+        size="small"
+        autoComplete="off"
+        spellCheck={false}
+        sx={{ 
+          width: '100%',
+          mb: 2,
+          '& .MuiInputBase-input': { 
+            color: 'white', 
+            fontSize: '0.8rem'
+          },
+          '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+          '& .MuiOutlinedInput-root': { 
+            '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+            '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+            '&.Mui-focused fieldset': { borderColor: '#2196F3' }
+          }
+        }}
+      />
 
       {/* Current Selection */}
       {isometricEditor.selectedSpriteName && (
         <Box sx={{ 
-          mb: 1, 
+          mb: 2, 
           p: 1, 
           border: '1px solid rgba(76, 175, 80, 0.5)',
           borderRadius: 1,
@@ -210,43 +348,53 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
           <Typography variant="caption" sx={{ color: '#4CAF50' }}>
             ✅ Selected: {isometricEditor.selectedSpriteName}
           </Typography>
+          <Typography variant="caption" sx={{ 
+            color: '#00BCD4', 
+            display: 'block', 
+            fontSize: '0.65rem' 
+          }}>
+            🎯 Z-Level: {isometricEditor.selectedZLevel} | Direction: {isometricEditor.selectedSpriteDirection}
+          </Typography>
         </Box>
       )}
       
-      {/* Sprite Selection - Compact */}
+      {/* Sprite Grid with Previews */}
       <Box sx={{ 
-        maxHeight: '120px', 
+        maxHeight: '400px', 
         overflow: 'auto', 
         border: '1px solid rgba(255,255,255,0.2)',
         borderRadius: 1,
         p: 1,
         mb: 2
       }}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-          {availableSprites.map((spriteName) => (
-            <Chip
+        <Typography variant="caption" sx={{ mb: 1, display: 'block', color: '#FFC107' }}>
+          📦 Available Sprites ({filteredSprites.length} found):
+        </Typography>
+        
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+          gap: 1
+        }}>
+          {filteredSprites.map((spriteName) => (
+            <SpritePreview
               key={spriteName}
-              label={spriteName.replace(/_/g, ' ')}
-              clickable
-              size="small"
-              variant={isometricEditor.selectedSpriteName === spriteName ? 'filled' : 'outlined'}
-              color={isometricEditor.selectedSpriteName === spriteName ? 'primary' : 'default'}
-              onClick={() => handleSpriteSelect(spriteName)}
+              spriteName={spriteName}
+              isSelected={isometricEditor.selectedSpriteName === spriteName}
+              onSelect={() => handleSpriteSelect(spriteName)}
               disabled={isLocked}
-              sx={{ 
-                fontSize: '0.7rem',
-                height: '24px',
-                color: 'white',
-                borderColor: 'rgba(255,255,255,0.5)'
-              }}
+              direction={isometricEditor.selectedSpriteDirection}
             />
           ))}
         </Box>
       </Box>
 
-      {/* Direction & Controls - Compact Row */}
-      {isometricEditor.selectedSpriteName && (
-        <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+      {/* Direction & Z-Level Controls */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Box>
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: '#FF9800' }}>
+            🧭 Direction:
+          </Typography>
           <ToggleButtonGroup
             value={isometricEditor.selectedSpriteDirection}
             exclusive
@@ -264,346 +412,36 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="caption">Z:</Typography>
-            <TextField
-              type="number"
-              value={isometricEditor.selectedZLevel}
-              onChange={(e) => battlemapActions.setSelectedZLevel(parseInt(e.target.value) || 0)}
-              disabled={isLocked}
-              size="small"
-              sx={{ 
-                width: '60px',
-                '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
-                '& .MuiOutlinedInput-root': { 
-                  '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                  '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' }
-                }
-              }}
-              inputProps={{ min: 0, max: 10 }}
-            />
-          </Box>
         </Box>
-      )}
-
-      <Divider sx={{ bgcolor: 'rgba(255,255,255,0.2)', my: 2 }} />
-
-      {/* Size Controls - Precise & Compact */}
-      <Typography variant="subtitle2" gutterBottom sx={{ color: '#FFC107' }}>
-        🎯 Size Controls
-      </Typography>
-
-      {/* Grid Diamond Width */}
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography variant="body2" sx={{ minWidth: '80px' }}>Grid Size:</Typography>
+        
+        <Box>
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: '#9C27B0' }}>
+            🏔️ Z-Level:
+          </Typography>
           <TextField
             type="number"
-            value={snap.view.gridDiamondWidth}
-            onChange={handleGridWidthChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '120px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#FFC107' },
-                '&:hover fieldset': { borderColor: '#FFC107' }
-              }
-            }}
-          />
-          <Typography variant="caption" sx={{ color: '#FFC107' }}>px</Typography>
-        </Box>
-      </Box>
-
-      {/* Sprite Scale */}
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography variant="body2" sx={{ minWidth: '80px' }}>Sprite Scale:</Typography>
-          <TextField
-            type="number"
-            value={snap.view.spriteScale.toFixed(2)}
-            onChange={handleSpriteScaleChange}
+            value={isometricEditor.selectedZLevel}
+            onChange={(e) => battlemapActions.setSelectedZLevel(parseInt(e.target.value) || 0)}
+            onFocus={() => console.log('[IsometricSpriteSelector] Z-level input focused')}
+            onBlur={() => console.log('[IsometricSpriteSelector] Z-level input blurred')}
             disabled={isLocked}
             size="small"
             sx={{ 
               width: '80px',
               '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
               '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#FF9800' },
-                '&:hover fieldset': { borderColor: '#FF9800' }
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' }
               }
             }}
-            inputProps={{ min: 0.1, max: 5.0, step: 0.01 }}
+            inputProps={{ min: 0, max: 10 }}
           />
-          <Typography variant="caption" sx={{ color: '#FF9800' }}>x</Typography>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteScale(Math.max(0.1, snap.view.spriteScale - 0.01))}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <RemoveIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteScale(Math.min(5.0, snap.view.spriteScale + 0.01))}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <AddIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-          </Box>
-        </Box>
-        {/* Display current sprite size */}
-        {isometricEditor.selectedSpriteName && (() => {
-          const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(isometricEditor.selectedSpriteName);
-          const actualSpriteWidth = spriteFrameSize?.width || 409;
-          return (
-            <Typography variant="caption" sx={{ opacity: 0.7, fontSize: '0.7rem', color: '#FF9800' }}>
-              Current sprite size: {Math.round(actualSpriteWidth * snap.view.spriteScale * snap.view.zoomLevel)}px 
-              (base: {actualSpriteWidth}px × {snap.view.spriteScale.toFixed(2)} × {snap.view.zoomLevel.toFixed(2)})
-            </Typography>
-          );
-        })()}
-      </Box>
-
-      {/* Calculation Margins (for predictions only) */}
-      <Typography variant="subtitle2" gutterBottom sx={{ color: '#00BCD4', mt: 2 }}>
-        🔬 Calculation Margins (Prediction Only)
-      </Typography>
-      
-      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="caption" sx={{ color: '#00BCD4', fontSize: '0.7rem' }}>Up:</Typography>
-          <TextField
-            type="number"
-            value={snap.view.calcMarginUp}
-            onChange={handleCalcMarginUpChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '60px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#00BCD4' },
-                '&:hover fieldset': { borderColor: '#00BCD4' }
-              }
-            }}
-          />
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="caption" sx={{ color: '#00BCD4', fontSize: '0.7rem' }}>Left:</Typography>
-          <TextField
-            type="number"
-            value={snap.view.calcMarginLeft}
-            onChange={handleCalcMarginLeftChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '60px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#00BCD4' },
-                '&:hover fieldset': { borderColor: '#00BCD4' }
-              }
-            }}
-          />
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="caption" sx={{ color: '#00BCD4', fontSize: '0.7rem' }}>Right:</Typography>
-          <TextField
-            type="number"
-            value={snap.view.calcMarginRight}
-            onChange={handleCalcMarginRightChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '60px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#00BCD4' },
-                '&:hover fieldset': { borderColor: '#00BCD4' }
-              }
-            }}
-          />
-        </Box>
-      </Box>
-
-      {/* Prediction Formulas & Calculations */}
-      {isometricEditor.selectedSpriteName && (() => {
-        // Get actual sprite dimensions from the sprite manager
-        const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(isometricEditor.selectedSpriteName);
-        const actualSpriteWidth = spriteFrameSize?.width || 409; // Fallback to 409 if not available
-        const actualSpriteHeight = spriteFrameSize?.height || 409; // Fallback to 409 if not available
-        
-        // Calculate effective dimensions after margins
-        const effectiveWidth = actualSpriteWidth - snap.view.calcMarginLeft - snap.view.calcMarginRight;
-        const effectiveHeight = actualSpriteHeight - snap.view.calcMarginUp;
-        
-        // Grid diamond height (half of diamond width)
-        const gridDiamondHeight = snap.view.gridDiamondWidth / 2;
-        
-        // USER'S EXACT FORMULA IMPLEMENTATION
-        // Step 1: (WIDTH - (MARGIN + 1)) / 2 --> actual height (isometric diamond bottom height)
-        const actualWidth = actualSpriteWidth - (snap.view.spriteInvisibleMargin + 1);
-        const isometricDiamondBottomHeight = actualWidth / 2;
-        
-        // Step 2: empirical height - (margin+1) - margin_above - actual height == vertical offset
-        const marginBelow = snap.view.spriteInvisibleMargin; // 8
-        const marginAbove = 4; // Your estimated margin above
-        const effectiveEmpiricalHeight = actualSpriteHeight - marginBelow - marginAbove - 1;
-        const calculatedVerticalOffset = effectiveEmpiricalHeight - isometricDiamondBottomHeight;
-        
-        // Alternative calculations for comparison
-        const formula2_gridBased = Math.round(gridDiamondHeight / 6);
-        const formula3_heightBased = Math.round(36 * (effectiveHeight / 249));
-        
-        // Your back-of-envelope calculation
-        const yourAnalysis_offset = 36; // Your calculated offset for Floor_01
-        const yourAnalysis_margin = 8;  // Your calculated invisible margin
-        
-        return (
-          <Box sx={{ mb: 2, p: 1, border: '1px solid rgba(255,255,255,0.2)', borderRadius: 1 }}>
-            <Typography variant="caption" sx={{ color: '#4CAF50', fontSize: '0.7rem', fontWeight: 'bold' }}>
-              🧮 Prediction Formulas (Actual Data)
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 1.0, fontSize: '0.7rem', display: 'block', mt: 1, color: '#FF5722', fontWeight: 'bold' }}>
-              🔍 DEBUG: Using sprite "{isometricEditor.selectedSpriteName}" for calculations
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', mt: 1, color: '#FFC107' }}>
-              📐 Sprite Dimensions: {actualSpriteWidth}×{actualSpriteHeight}px
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#FFC107' }}>
-              📏 Effective (after margins): {effectiveWidth}×{effectiveHeight}px
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 1.0, fontSize: '0.7rem', display: 'block', mt: 1, color: '#FF5722', fontWeight: 'bold' }}>
-              🧮 YOUR FORMULA CALCULATION:
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#FF5722' }}>
-              Step 1: ({actualSpriteWidth} - ({snap.view.spriteInvisibleMargin} + 1)) / 2 = {isometricDiamondBottomHeight.toFixed(1)}px (iso diamond height)
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#FF5722' }}>
-              Step 2: {actualSpriteHeight} - {marginBelow} - {marginAbove} - 1 = {effectiveEmpiricalHeight}px (effective sprite height)
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#FF5722' }}>
-              Step 3: {effectiveEmpiricalHeight} - {isometricDiamondBottomHeight.toFixed(1)} = {calculatedVerticalOffset.toFixed(1)}px (CALCULATED OFFSET)
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', mt: 1, color: '#03DAC6' }}>
-              🎯 CALCULATED OFFSET: {calculatedVerticalOffset.toFixed(1)}px (from your formula)
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#03DAC6' }}>
-              🎯 CURRENT SETTINGS: Vertical={snap.view.spriteVerticalOffset}px, Margin={snap.view.spriteInvisibleMargin}px
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 0.9, fontSize: '0.65rem', display: 'block', color: '#03DAC6' }}>
-              📋 Recommended (your analysis): Vertical={yourAnalysis_offset}px, Margin={yourAnalysis_margin}px
-            </Typography>
-            
-            <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.6rem', display: 'block', mt: 0.5 }}>
-              🔬 Compare your pixel-perfect values with mathematical predictions
-            </Typography>
-          </Box>
-        );
-      })()}
-
-      {/* Invisible Margin */}
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography variant="body2" sx={{ minWidth: '80px' }}>Invisible Margin (Base):</Typography>
-          <TextField
-            type="number"
-            value={snap.view.spriteInvisibleMargin}
-            onChange={handleInvisibleMarginChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '80px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#9C27B0' },
-                '&:hover fieldset': { borderColor: '#9C27B0' }
-              }
-            }}
-            inputProps={{ step: 1 }}
-          />
-          <Typography variant="caption" sx={{ color: '#9C27B0' }}>px</Typography>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteInvisibleMargin(snap.view.spriteInvisibleMargin - 1)}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <RemoveIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteInvisibleMargin(snap.view.spriteInvisibleMargin + 1)}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <AddIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-          </Box>
-        </Box>
-      </Box>
-
-      {/* Vertical Offset */}
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography variant="body2" sx={{ minWidth: '80px' }}>Vertical Offset (Base):</Typography>
-          <TextField
-            type="number"
-            value={snap.view.spriteVerticalOffset}
-            onChange={handleVerticalOffsetChange}
-            disabled={isLocked}
-            size="small"
-            sx={{ 
-              width: '80px',
-              '& .MuiInputBase-input': { color: 'white', fontSize: '0.8rem', padding: '4px 8px' },
-              '& .MuiOutlinedInput-root': { 
-                '& fieldset': { borderColor: '#FF9800' },
-                '&:hover fieldset': { borderColor: '#FF9800' }
-              }
-            }}
-            inputProps={{ step: 1 }}
-          />
-          <Typography variant="caption" sx={{ color: '#FF9800' }}>px</Typography>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteVerticalOffset(snap.view.spriteVerticalOffset - 1)}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <RemoveIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={() => battlemapActions.setSpriteVerticalOffset(snap.view.spriteVerticalOffset + 1)}
-              disabled={isLocked}
-              sx={{ color: 'white', width: '24px', height: '24px' }}
-            >
-              <AddIcon sx={{ fontSize: '16px' }} />
-            </IconButton>
-          </Box>
         </Box>
       </Box>
 
       <Typography variant="caption" sx={{ opacity: 0.6, display: 'block', fontSize: '0.7rem' }}>
-        📐 Grid: Isometric diamond size<br/>
-        🎨 Sprite: Sprite size (independent)<br/>
-        🔧 Margin: Internal positioning (fixed)<br/>
-        📏 Vertical: Fine-tune Y position (zoom-aware)<br/>
-        🔍 Zoom: Use mouse wheel or top controls
+        💡 Click a sprite to select it, then use left/right-click to place tiles.<br/>
+        🖱️ Middle-click to delete | 🎹 Keys 1-3 to switch layers
       </Typography>
     </Paper>
   );

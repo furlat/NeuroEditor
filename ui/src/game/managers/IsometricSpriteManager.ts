@@ -82,7 +82,259 @@ export class IsometricSpriteManager {
       frameHeight: 128,
       totalFrames: 4
     },
-    // Block/Floor sprites
+    // Block/Floor sprites - ALL SPRITES FROM BLOCKS DIRECTORY
+    {
+      name: 'UnderBlock_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderBlock_Corner_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_Corner_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_Corner_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderBlock_Bottom_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_Bottom_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_Bottom_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderBlock_Mid_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_Mid_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_Mid_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Corner_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Corner_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Corner_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Top_Corner_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Top_Corner_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Top_Corner_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Corner_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Corner_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Corner_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_Path_03',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_Path_03.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_Path_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_Path_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_Path_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_Path_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_HalfSquare_02',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_HalfSquare_02.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_HalfSquare_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_HalfSquare_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_HalfSquare_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_HalfSquare_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_Square_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_Square_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_Square_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenFloor_Path_02',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenFloor_Path_02.png',
+      fullPath: '/isometric_tiles/blocks/GardenFloor_Path_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Mid_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Mid_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Mid_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Bottom_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Bottom_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Bottom_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderBlock_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_Path_03',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_Path_03.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_Path_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_Path_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_Path_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_Path_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_HalfSquare_02',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_HalfSquare_02.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_HalfSquare_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_HalfSquare_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_HalfSquare_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_HalfSquare_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_Square_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_Square_01.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_Square_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'GardenBlock_Path_02',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'GardenBlock_Path_02.png',
+      fullPath: '/isometric_tiles/blocks/GardenBlock_Path_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderBlock_Corner_Tall_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderBlock_Corner_Tall_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderBlock_Corner_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'UnderFloor_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'UnderFloor_01.png',
+      fullPath: '/isometric_tiles/blocks/UnderFloor_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
     {
       name: 'Floor_01',
       category: SpriteCategory.BLOCKS,
@@ -93,10 +345,19 @@ export class IsometricSpriteManager {
       totalFrames: 4
     },
     {
-      name: 'FloorBlock_01',
+      name: 'Floor_Corner_01',
       category: SpriteCategory.BLOCKS,
-      fileName: 'FloorBlock_01.png',
-      fullPath: '/isometric_tiles/blocks/FloorBlock_01.png',
+      fileName: 'Floor_Corner_01.png',
+      fullPath: '/isometric_tiles/blocks/Floor_Corner_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'FloorBlock_Top_01',
+      category: SpriteCategory.BLOCKS,
+      fileName: 'FloorBlock_Top_01.png',
+      fullPath: '/isometric_tiles/blocks/FloorBlock_Top_01.png',
       frameWidth: 128,
       frameHeight: 128,
       totalFrames: 4

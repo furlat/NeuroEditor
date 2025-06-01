@@ -13,6 +13,7 @@ export interface TileSummary {
   readonly z_level: number; // Z-axis level for multi-layer rendering
   readonly sprite_direction: IsometricDirection; // Direction for 4-directional sprites
   readonly tile_type: 'floor' | 'wall' | 'decoration' | 'custom'; // Semantic type
+  readonly snap_position: 'above' | 'below'; // Whether tile snaps above or below grid (affects vertical offset application)
 }
 
 // Response types

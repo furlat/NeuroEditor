@@ -1,5 +1,5 @@
 import { Graphics, Sprite, Container } from 'pixi.js';
-import { battlemapStore } from '../../store';
+import { battlemapStore, battlemapActions, Z_LAYER_CONFIG, LayerVisibilityMode } from '../../store';
 import { TileSummary } from '../../types/battlemap_types';
 import { AbstractRenderer } from './BaseRenderer';
 import { subscribe } from 'valtio';
@@ -39,9 +39,10 @@ export class IsometricTileRenderer extends AbstractRenderer {
   private lastTileVisibility = true;
   private lastShowZLevel = -1;
   private lastZoomLevel = 1.0;
-  private lastVerticalOffset = 0;
-  private lastInvisibleMargin = 0;
+  private lastGridLayerVisibility: { [zLayer: number]: boolean } = { 0: true, 1: true, 2: true };
   private spritesLoaded = false;
+  // NEW: Track sprite type settings changes
+  private lastSpriteTypeSettingsHash: string = '';
 
   /**
    * Initialize the renderer
@@ -100,38 +101,33 @@ export class IsometricTileRenderer extends AbstractRenderer {
     this.lastTileVisibility = battlemapStore.controls.isTilesVisible;
     this.lastShowZLevel = battlemapStore.view.showZLevel;
     this.lastZoomLevel = battlemapStore.view.zoomLevel;
-    this.lastVerticalOffset = battlemapStore.view.spriteVerticalOffset;
-    this.lastInvisibleMargin = battlemapStore.view.spriteInvisibleMargin;
+    this.lastGridLayerVisibility = { ...battlemapStore.view.gridLayerVisibility };
+    this.lastSpriteTypeSettingsHash = JSON.stringify(battlemapStore.controls.isometricEditor.spriteTypeSettings);
   }
   
   /**
    * Set up subscriptions to the Valtio store
    */
   private setupSubscriptions(): void {
-    // Subscribe to grid changes (for tile updates)
-    const unsubGrid = subscribe(battlemapStore.grid, () => {
-      const hasChanges = this.hasTilesChanged(battlemapStore.grid.tiles);
+    // Subscribe to the root store for broader reactivity
+    this.addSubscription(subscribe(battlemapStore, () => {
+      console.log('[IsometricTileRenderer] Store changed, checking for relevant changes');
       
-      if (hasChanges) {
-        this.tilesRef = {...battlemapStore.grid.tiles};
-        this.tilesNeedUpdate = true;
+        const hasChanges = this.hasTilesChanged(battlemapStore.grid.tiles);
+        if (hasChanges) {
+          this.tilesRef = {...battlemapStore.grid.tiles};
+          this.tilesNeedUpdate = true;
       }
       
       this.render();
-    });
-    this.addSubscription(unsubGrid);
+    }));
     
-    // Subscribe to view changes (zooming, panning, Z-level filtering)
-    const unsubView = subscribe(battlemapStore.view, () => {
+    // Also set up a manual render trigger that can be called from outside
+    (window as any).__forceTileRender = () => {
+      console.log('[IsometricTileRenderer] Manual render trigger called');
+      this.tilesNeedUpdate = true;
       this.render();
-    });
-    this.addSubscription(unsubView);
-    
-    // Subscribe to control changes (e.g., tile visibility)
-    const unsubControls = subscribe(battlemapStore.controls, () => {
-      this.render();
-    });
-    this.addSubscription(unsubControls);
+    };
   }
   
   /**
@@ -153,10 +149,11 @@ export class IsometricTileRenderer extends AbstractRenderer {
         return true;
       }
       
-      // Check for sprite changes
+      // Check for sprite changes - FIXED: Include snap_position
       if (oldTile.sprite_name !== newTile.sprite_name ||
           oldTile.sprite_direction !== newTile.sprite_direction ||
-          oldTile.z_level !== newTile.z_level) {
+          oldTile.z_level !== newTile.z_level ||
+          oldTile.snap_position !== newTile.snap_position) { // FIXED: Added snap_position check
         return true;
       }
     }
@@ -170,7 +167,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
     
     return false;
   }
-
+  
   /**
    * Get a sprite from the pool or create a new one
    */
@@ -179,8 +176,8 @@ export class IsometricTileRenderer extends AbstractRenderer {
       return this.spritePool.pop()!;
     }
     return new Sprite();
-  }
-
+    }
+    
   /**
    * Return a sprite to the pool
    */
@@ -192,18 +189,22 @@ export class IsometricTileRenderer extends AbstractRenderer {
   }
 
   /**
-   * Filter tiles based on current Z-level display setting
+   * Filter tiles based on shadow/invisible mode - NOT grid visibility
    */
   private getVisibleTiles(): TileSummary[] {
-    const showZLevel = battlemapStore.view.showZLevel;
     const allTiles = Object.values(this.tilesRef);
+    const snap = battlemapStore;
     
-    if (showZLevel === -1) {
-      // Show all Z levels
-      return allTiles;
-    } else {
-      // Show only specific Z level
-      return allTiles.filter(tile => tile.z_level === showZLevel);
+    switch (snap.view.layerVisibilityMode) {
+      case LayerVisibilityMode.SHADOW:
+      case LayerVisibilityMode.NORMAL:
+        // SHADOW and NORMAL modes: Show ALL tiles (grid visibility doesn't affect tiles)
+        return allTiles;
+      case LayerVisibilityMode.INVISIBLE:
+        // INVISIBLE mode: Show ONLY active layer tiles
+        return allTiles.filter(tile => tile.z_level === snap.view.activeZLayer);
+      default:
+        return allTiles;
     }
   }
 
@@ -225,7 +226,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
       return a.position[0] - b.position[0];
     });
   }
-
+  
   /**
    * Main render method
    */
@@ -233,6 +234,8 @@ export class IsometricTileRenderer extends AbstractRenderer {
     if (!this.engine || !this.engine.app) {
       return;
     }
+    
+    console.log('[IsometricTileRenderer] Starting render cycle...');
     
     // Check if visibility has changed
     const currentTileVisibility = battlemapStore.controls.isTilesVisible;
@@ -247,6 +250,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
     if (!currentTileVisibility) {
       this.clearAllTiles();
       this.updateLastKnownStates();
+      console.log('[IsometricTileRenderer] Tiles not visible, cleared and exiting');
       return;
     }
     
@@ -258,12 +262,24 @@ export class IsometricTileRenderer extends AbstractRenderer {
     const hasGridDiamondWidthChanged = this.lastGridDiamondWidth !== battlemapStore.view.gridDiamondWidth;
     const hasSpriteScaleChanged = this.lastSpriteScale !== battlemapStore.view.spriteScale;
     const hasZoomChanged = this.lastZoomLevel !== battlemapStore.view.zoomLevel;
-    const hasVerticalOffsetChanged = this.lastVerticalOffset !== battlemapStore.view.spriteVerticalOffset;
-    const hasInvisibleMarginChanged = this.lastInvisibleMargin !== battlemapStore.view.spriteInvisibleMargin;
     
-    // Render tiles if needed - now includes zoom change detection
+    // ADDED: Check for grid layer visibility changes
+    const hasGridLayerVisibilityChanged = 
+      this.lastGridLayerVisibility[0] !== battlemapStore.view.gridLayerVisibility[0] ||
+      this.lastGridLayerVisibility[1] !== battlemapStore.view.gridLayerVisibility[1] ||
+      this.lastGridLayerVisibility[2] !== battlemapStore.view.gridLayerVisibility[2];
+    
+    // NEW: Check for sprite type settings changes (margins, vertical bias, etc.)
+    const hasSpriteTypeSettingsChanged = this.hasSpriteTypeSettingsChanged();
+    
+    const snap = battlemapStore;
+    console.log(`[IsometricTileRenderer] Change detection - Tiles: ${this.tilesNeedUpdate}, Position: ${hasPositionChanged}, Grid: ${hasGridDiamondWidthChanged}, Scale: ${hasSpriteScaleChanged}, Zoom: ${hasZoomChanged}, Z-Level: ${hasZLevelChanged}, Visibility: ${hasVisibilityChanged}, GridLayers: ${hasGridLayerVisibilityChanged}, SpriteSettings: ${hasSpriteTypeSettingsChanged}, WASD: ${snap.view.wasd_moving}`);
+    
+    // Render tiles if needed - now includes sprite type settings changes
     if (this.tilesNeedUpdate || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || hasZoomChanged ||
-        hasVisibilityChanged || hasZLevelChanged || hasVerticalOffsetChanged || hasInvisibleMarginChanged || battlemapStore.view.wasd_moving) {
+        hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || hasSpriteTypeSettingsChanged || battlemapStore.view.wasd_moving) {
+      
+      console.log('[IsometricTileRenderer] Triggering tile re-render due to changes');
       
       if (this.spritesLoaded) {
         this.renderTilesWithSprites();
@@ -273,9 +289,11 @@ export class IsometricTileRenderer extends AbstractRenderer {
       
       this.tilesNeedUpdate = false;
       this.updateLastKnownStates();
+    } else {
+      console.log('[IsometricTileRenderer] No changes detected, skipping render');
     }
   }
-
+  
   /**
    * Render tiles using actual isometric sprites
    */
@@ -342,17 +360,58 @@ export class IsometricTileRenderer extends AbstractRenderer {
     const zoomedDiamondHeight = isometricOffset.tileSize / 2; // tileSize already includes zoom, 2:1 aspect ratio
     sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2); // Align to bottom of diamond
 
-    // Add Z-level offset using zoomed diamond size for proper layering
-    sprite.y -= tile.z_level * (zoomedDiamondHeight * 0.5);
+    // FIXED: Use Z_LAYER_CONFIG offsets instead of calculated offsets to match grid renderer
+    if (tile.z_level < Z_LAYER_CONFIG.maxLayers) {
+      const layerConfig = battlemapActions.getAllZLayerConfigs()[tile.z_level];
+      sprite.y -= layerConfig.verticalOffset * snap.view.zoomLevel; // Apply Z offset with zoom scaling (same as grid)
+    }
 
-    // Apply positioning adjustments
+    // Apply positioning adjustments using per-sprite settings
     // All values are base offsets at 100% sprite scale, scaled by both spriteScale and zoomLevel
     const scaleFactor = snap.view.spriteScale * snap.view.zoomLevel;
     
-    // Invisible margin: internal positioning adjustment (base value scaled by sprite scale and zoom)
-    sprite.y += snap.view.spriteInvisibleMargin * scaleFactor;
-    // Vertical offset: user fine-tuning (base value scaled by sprite scale and zoom)  
-    sprite.y += snap.view.spriteVerticalOffset * scaleFactor;
+    // EXACT USER SPECIFICATION: Get per-sprite-type positioning settings
+    let spriteTypeSettings = battlemapActions.getSpriteTypeSettings(spriteName);
+    console.log(`[IsometricTileRenderer] Getting settings for ${spriteName}:`, spriteTypeSettings?.autoComputedVerticalBias, spriteTypeSettings?.useAutoComputed);
+    
+    if (!spriteTypeSettings) {
+      // Auto-calculate for sprites without settings using user's exact formula
+      const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+      if (spriteFrameSize) {
+        const calculated = battlemapActions.calculateSpriteTypePositioning(spriteFrameSize.width, spriteFrameSize.height);
+        spriteTypeSettings = calculated;
+        // Save the calculated settings
+        battlemapActions.setSpriteTypeSettings(spriteName, calculated);
+      } else {
+        // Fallback to default values
+        spriteTypeSettings = {
+          invisibleMarginUp: 8,
+          invisibleMarginDown: 8,
+          invisibleMarginLeft: 8,
+          invisibleMarginRight: 8,
+          autoComputedVerticalBias: 36,
+          useAutoComputed: true,
+          manualVerticalBias: 36
+        };
+      }
+    }
+    
+    // USER SPECIFICATION: Use auto-computed or manual vertical bias based on flag
+    const verticalBias = spriteTypeSettings.useAutoComputed 
+      ? spriteTypeSettings.autoComputedVerticalBias 
+      : spriteTypeSettings.manualVerticalBias;
+    
+    // For positioning, use the down margin as the primary positioning margin
+    const finalInvisibleMargin = spriteTypeSettings.invisibleMarginDown;
+    
+    // Apply positioning based on snap position
+    if (tile.snap_position === 'above') {
+      // Above positioning: apply vertical bias + invisible margin
+      sprite.y += (verticalBias + finalInvisibleMargin) * scaleFactor;
+    } else {
+      // Below positioning: only apply invisible margin to snap to grid diamond bottom
+      sprite.y += finalInvisibleMargin * scaleFactor;
+    }
 
     // Set anchor to center bottom for proper isometric positioning
     sprite.anchor.set(0.5, 1.0);
@@ -364,13 +423,51 @@ export class IsometricTileRenderer extends AbstractRenderer {
     
     sprite.scale.set(finalScale);
 
+    // FIXED: Apply visual differentiation based on shadow/invisible mode
+    const isActiveLayer = tile.z_level === snap.view.activeZLayer;
+    
+    switch (snap.view.layerVisibilityMode) {
+      case LayerVisibilityMode.SHADOW:
+        // SHADOW mode: All tiles visible, non-active layers dimmed/tinted
+        if (isActiveLayer) {
+          // Active layer: full visibility, no tint
+          sprite.alpha = 1.0;
+          sprite.tint = 0xFFFFFF; // White (no tint)
+        } else {
+          // Non-active layer: dimmed with layer color tint
+          sprite.alpha = 0.6;
+          if (tile.z_level < Z_LAYER_CONFIG.maxLayers) {
+            const layerConfig = battlemapActions.getAllZLayerConfigs()[tile.z_level];
+            sprite.tint = layerConfig.color;
+          }
+        }
+        break;
+      case LayerVisibilityMode.NORMAL:
+        // NORMAL mode: All tiles visible with full opacity, no tinting
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF; // White (no tint)
+        break;
+      case LayerVisibilityMode.INVISIBLE:
+        // INVISIBLE mode: Only active layer tiles are rendered (this should only be active layer)
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF; // White (no tint)
+        break;
+      default:
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF; // White (no tint)
+    }
+
     // Debug info for manual tuning (you can see these values)
     if (Math.random() < 0.01) { // Log occasionally to avoid spam
       const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
       const actualSpriteWidth = spriteFrameSize?.width || 128;
       const actualSpriteHeight = spriteFrameSize?.height || 128;
-      const invisibleMarginBase = snap.view.spriteInvisibleMargin;
+      const invisibleMarginBase = finalInvisibleMargin; // Use final values
       const invisibleMarginScaled = invisibleMarginBase * scaleFactor;
+      const verticalOffsetBase = verticalBias; // Use final values
+      const verticalOffsetScaled = verticalOffsetBase * scaleFactor;
+      const layerConfig = tile.z_level < Z_LAYER_CONFIG.maxLayers ? battlemapActions.getAllZLayerConfigs()[tile.z_level] : { name: 'Invalid', verticalOffset: 0 };
+      const isCurrentSprite = spriteName === snap.controls.isometricEditor.selectedSpriteName;
       
       // Also show calculations for currently selected sprite (for predictions)
       const selectedSpriteName = snap.controls.isometricEditor.selectedSpriteName;
@@ -378,9 +475,9 @@ export class IsometricTileRenderer extends AbstractRenderer {
         const selectedSpriteFrameSize = isometricSpriteManager.getSpriteFrameSize(selectedSpriteName);
         const selectedSpriteWidth = selectedSpriteFrameSize?.width || 128;
         const selectedSpriteHeight = selectedSpriteFrameSize?.height || 128;
-        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) | Selected Sprite: ${selectedSpriteName} (${selectedSpriteWidth}x${selectedSpriteHeight}px) | Grid: ${isometricOffset.tileSize}px, SpriteScale: ${spriteScale.toFixed(2)}, Zoom: ${snap.view.zoomLevel.toFixed(2)}, GridDiamondWidth: ${snap.view.gridDiamondWidth}px, InvisibleMargin: ${invisibleMarginBase}px (scaled: ${invisibleMarginScaled.toFixed(1)}px)`);
+        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px→${tile.snap_position === 'above' ? verticalOffsetScaled.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px→${invisibleMarginScaled.toFixed(1)}px] | Selected: ${selectedSpriteName} (${selectedSpriteWidth}x${selectedSpriteHeight}px) | Grid: ${isometricOffset.tileSize}px`);
       } else {
-        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) | No Selected Sprite | Grid: ${isometricOffset.tileSize}px, SpriteScale: ${spriteScale.toFixed(2)}, Zoom: ${snap.view.zoomLevel.toFixed(2)}, GridDiamondWidth: ${snap.view.gridDiamondWidth}px, InvisibleMargin: ${invisibleMarginBase}px (scaled: ${invisibleMarginScaled.toFixed(1)}px)`);
+        console.log(`[IsometricTileRenderer] Current Tile: ${spriteName} (${actualSpriteWidth}x${actualSpriteHeight}px) ${spriteTypeSettings.useAutoComputed ? '🤖AUTO' : '✋MANUAL'} ${isCurrentSprite ? '🎯SELECTED' : ''} [${tile.snap_position.toUpperCase()}] [Z:${tile.z_level}/${layerConfig.name}] [V:${tile.snap_position === 'above' ? verticalOffsetBase : 0}px→${tile.snap_position === 'above' ? verticalOffsetScaled.toFixed(1) : '0.0'}px, M:${invisibleMarginBase}px→${invisibleMarginScaled.toFixed(1)}px] | Grid: ${isometricOffset.tileSize}px`);
       }
     }
 
@@ -404,7 +501,13 @@ export class IsometricTileRenderer extends AbstractRenderer {
     const scaledIsoX = isoX; // No additional scaling
     const scaledIsoY = isoY;
     const centerX = isometricOffset.offsetX + scaledIsoX;
-    const centerY = isometricOffset.offsetY + scaledIsoY - (tile.z_level * snap.view.gridDiamondWidth * 0.25);
+    let centerY = isometricOffset.offsetY + scaledIsoY;
+    
+    // FIXED: Use Z_LAYER_CONFIG offsets instead of calculated offsets to match grid renderer
+    if (tile.z_level < Z_LAYER_CONFIG.maxLayers) {
+      const layerConfig = battlemapActions.getAllZLayerConfigs()[tile.z_level];
+      centerY -= layerConfig.verticalOffset * snap.view.zoomLevel; // Apply Z offset with zoom scaling (same as grid)
+    }
 
     // Calculate diamond corners using actual grid diamond width
     const halfTile = snap.view.gridDiamondWidth / 2;
@@ -471,7 +574,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
       this.returnSpriteToPool(sprite);
     });
     this.activeTileSprites.clear();
-    
+
     // Clear fallback graphics
     this.fallbackGraphics.clear();
   }
@@ -518,5 +621,17 @@ export class IsometricTileRenderer extends AbstractRenderer {
     
     // Call parent destroy
     super.destroy();
+  }
+
+  /**
+   * Check if sprite type settings have changed (margins, vertical bias, etc.)
+   */
+  private hasSpriteTypeSettingsChanged(): boolean {
+    const currentHash = JSON.stringify(battlemapStore.controls.isometricEditor.spriteTypeSettings);
+    const hasChanged = this.lastSpriteTypeSettingsHash !== currentHash;
+    if (hasChanged) {
+      console.log(`[IsometricTileRenderer] Sprite type settings changed! Old hash length: ${this.lastSpriteTypeSettingsHash.length}, New hash length: ${currentHash.length}`);
+    }
+    return hasChanged;
   }
 } 

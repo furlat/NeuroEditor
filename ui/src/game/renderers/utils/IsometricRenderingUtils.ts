@@ -1,5 +1,5 @@
 import { Graphics } from 'pixi.js';
-import { battlemapStore } from '../../../store';
+import { battlemapStore, battlemapActions } from '../../../store';
 import { LayerName } from '../../BattlemapEngine';
 import { ENTITY_PANEL_WIDTH, GRID_STROKE_WIDTH } from '../../../constants/layout';
 import { 
@@ -47,7 +47,7 @@ export class IsometricRenderingUtils {
   
   /**
    * Convert screen pixel coordinates to grid coordinates (for mouse interaction)
-   * Centralized version with proper isometric conversion
+   * Centralized version with proper isometric conversion AND Z-layer awareness
    */
   static screenToGrid(
     screenX: number, 
@@ -58,9 +58,17 @@ export class IsometricRenderingUtils {
     const { offsetX, offsetY, gridWidth, gridHeight } = 
       this.calculateIsometricGridOffset(engine);
     
+    // FIXED: Account for active Z-layer vertical offset in mouse detection
+    const activeLayerConfig = battlemapActions.getActiveZLayerConfig();
+    const zLayerOffset = activeLayerConfig.verticalOffset * snap.view.zoomLevel;
+    
+    // Adjust screen Y coordinate by the Z-layer offset before grid conversion
+    // Higher Z-layers are visually offset upward, so we need to compensate
+    const adjustedScreenY = screenY + zLayerOffset;
+    
     return screenToGrid(
       screenX, 
-      screenY, 
+      adjustedScreenY, // Use adjusted Y coordinate
       offsetX, 
       offsetY, 
       snap.view.zoomLevel,
@@ -132,6 +140,56 @@ export class IsometricRenderingUtils {
   ): void {
     positions.forEach(({ x, y }) => {
       this.renderIsometricDiamond(graphics, x, y, engine, fillOptions, strokeOptions);
+    });
+  }
+  
+  /**
+   * Render multiple isometric diamonds in a batch with Z-offset support
+   * Optimized for rendering many tiles/grid cells at once with vertical Z layer offsets
+   */
+  static renderIsometricDiamondBatchWithZOffset(
+    graphics: Graphics,
+    positions: Array<{ x: number; y: number; zOffset: number }>,
+    engine: any,
+    fillOptions?: { color: number; alpha: number },
+    strokeOptions?: { color: number; width: number; alpha?: number }
+  ): void {
+    const snap = battlemapStore;
+    const { offsetX, offsetY, tileSize } = this.calculateIsometricGridOffset(engine);
+    
+    positions.forEach(({ x, y, zOffset }) => {
+      // Convert grid coordinates to isometric using zoomed grid width
+      const { isoX, isoY } = gridToIsometric(x, y, tileSize);
+      
+      // Calculate the diamond center with Z offset
+      const centerX = offsetX + isoX;
+      const centerY = offsetY + isoY - (zOffset * snap.view.zoomLevel); // Apply Z offset with zoom scaling
+      const strokeOffset = strokeOptions ? (strokeOptions.width || GRID_STROKE_WIDTH) * 0.5 : 0;
+      
+      const { topX, topY, rightX, rightY, bottomX, bottomY, leftX, leftY } = 
+        calculateIsometricDiamondCorners(centerX, centerY, tileSize, strokeOffset);
+      
+      // Draw diamond path
+      graphics
+        .moveTo(topX, topY)
+        .lineTo(rightX, rightY)
+        .lineTo(bottomX, bottomY)
+        .lineTo(leftX, leftY)
+        .lineTo(topX, topY);
+      
+      // Apply fill if specified
+      if (fillOptions) {
+        graphics.fill({ color: fillOptions.color, alpha: fillOptions.alpha });
+      }
+      
+      // Apply stroke if specified
+      if (strokeOptions) {
+        graphics.stroke({ 
+          color: strokeOptions.color, 
+          width: strokeOptions.width,
+          alpha: strokeOptions.alpha || 1.0
+        });
+      }
     });
   }
   

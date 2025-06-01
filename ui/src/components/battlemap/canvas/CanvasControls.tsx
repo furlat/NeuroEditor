@@ -12,14 +12,16 @@ import EditOffIcon from '@mui/icons-material/EditOff';
 import ImageIcon from '@mui/icons-material/Image';
 import HideImageIcon from '@mui/icons-material/HideImage';
 import { useMapControls, useTileEditor } from '../../../hooks/battlemap';
-import TileEditorPanel from './TileEditorPanel';
 import IsometricSpriteSelector from './IsometricSpriteSelector';
+import IsometricConfigurationPanel from './IsometricConfigurationPanel';
 import { battlemapStore } from '../../../store';
 import { useSnapshot } from 'valtio';
 import SettingsButton from '../../settings/SettingsButton';
+import ZLayerSelector from './ZLayerSelector';
 
 /**
  * Component that renders the tile editor control panel
+ * PERFORMANCE OPTIMIZED: Only subscribes to view properties needed for display
  */
 export const CanvasControls: React.FC = () => {
   // Use the hooks to get the state and actions
@@ -41,9 +43,9 @@ export const CanvasControls: React.FC = () => {
     toggleEditorVisibility 
   } = useTileEditor();
   
-  // Get the current hovered cell position directly from the store
-  const snap = useSnapshot(battlemapStore);
-  const hoveredCell = snap.view.hoveredCell;
+  // PERFORMANCE FIX: Only subscribe to hoveredCell, not the entire view object
+  // This avoids re-renders when offset changes during WASD movement
+  const hoveredCellSnap = useSnapshot(battlemapStore.view.hoveredCell);
   
   const handleEditToggle = useCallback(() => {
     console.log('[CanvasControls] Edit button clicked, current state:', { isEditing });
@@ -58,40 +60,64 @@ export const CanvasControls: React.FC = () => {
     
     console.log('[CanvasControls] After toggle, new editing state will be:', { isEditing: !isEditing });
   }, [isEditing, toggleEditing, toggleEditorVisibility]);
-  
+
+  const formatPosition = (x: number, y: number): string => {
+    if (x < 0 || y < 0) return 'Outside';
+    return `(${x}, ${y})`;
+  };
+
   return (
     <>
-      {/* Controls Panel - Positioned at top center */}
+      {/* Main Control Panel - Centered at Top */}
       <Paper 
-        elevation={3} 
         sx={{ 
           position: 'absolute', 
-          top: 8, 
+          top: 16,
           left: '50%',
           transform: 'translateX(-50%)',
-          padding: 1,
-          paddingX: 2,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          padding: 2,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
           color: 'white',
+          zIndex: 1000,
           display: 'flex',
-          flexDirection: 'row',
           alignItems: 'center',
-          gap: 2,
-          zIndex: 1
+          gap: 2
         }}
       >
-        <Typography variant="body2">
-          🎯 Position: ({hoveredCell.x >= 0 ? hoveredCell.x : '-'}, {hoveredCell.y >= 0 ? hoveredCell.y : '-'})
-        </Typography>
+        {/* Lock Control */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title={isLocked ? "Unlock Map" : "Lock Map"}>
+            <IconButton
+              onClick={toggleLock}
+              sx={{ color: isLocked ? '#f44336' : '#4caf50' }}
+            >
+              {isLocked ? <LockIcon /> : <LockOpenIcon />}
+            </IconButton>
+          </Tooltip>
+          
+          <Typography variant="body2" sx={{ opacity: 0.8 }}>
+            {isLocked ? '🔒' : '🔓'}
+          </Typography>
+        </Box>
         
-        <Divider orientation="vertical" flexItem sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
-        
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          {/* Zoom controls */}
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
+
+        {/* View Controls */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title="Zoom In">
+            <IconButton
+              onClick={zoomIn}
+              disabled={isLocked}
+              sx={{ color: 'white' }}
+            >
+              <AddIcon />
+            </IconButton>
+          </Tooltip>
+          
           <Tooltip title="Zoom Out">
-            <IconButton 
-              size="small" 
+            <IconButton
               onClick={zoomOut}
+              disabled={isLocked}
               sx={{ color: 'white' }}
             >
               <RemoveIcon />
@@ -99,113 +125,99 @@ export const CanvasControls: React.FC = () => {
           </Tooltip>
           
           <Tooltip title="Reset View">
-            <IconButton 
-              size="small" 
+            <IconButton
               onClick={resetView}
+              disabled={isLocked}
               sx={{ color: 'white' }}
             >
               <RestartAltIcon />
             </IconButton>
           </Tooltip>
-          
-          <Tooltip title="Zoom In">
-            <IconButton 
-              size="small" 
-              onClick={zoomIn}
-              sx={{ color: 'white' }}
-            >
-              <AddIcon />
-            </IconButton>
-          </Tooltip>
+        </Box>
 
-          <Divider orientation="vertical" flexItem sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
 
-          {/* Lock Button */}
-          <Tooltip title={isLocked ? "Unlock Map" : "Lock Map"}>
-            <IconButton
-              size="small"
-              onClick={toggleLock}
-              sx={{ 
-                color: 'white',
-                backgroundColor: isLocked ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
-              }}
-            >
-              {isLocked ? <LockIcon /> : <LockOpenIcon />}
-            </IconButton>
-          </Tooltip>
-
-          {/* Grid Toggle */}
+        {/* Visibility Controls */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Tooltip title={isGridVisible ? "Hide Grid" : "Show Grid"}>
             <IconButton
-              size="small"
               onClick={toggleGridVisibility}
-              sx={{ 
-                color: 'white',
-                backgroundColor: isGridVisible ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
-              }}
+              disabled={isLocked}
+              sx={{ color: isGridVisible ? '#00bcd4' : 'rgba(255,255,255,0.5)' }}
             >
               {isGridVisible ? <GridOnIcon /> : <GridOffIcon />}
             </IconButton>
           </Tooltip>
-
-          {/* Tiles Toggle */}
+          
           <Tooltip title={isTilesVisible ? "Hide Tiles" : "Show Tiles"}>
             <IconButton
-              size="small"
               onClick={toggleTilesVisibility}
-              sx={{ 
-                color: 'white',
-                backgroundColor: isTilesVisible ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
-              }}
+              disabled={isLocked}
+              sx={{ color: isTilesVisible ? '#ff9800' : 'rgba(255,255,255,0.5)' }}
             >
               {isTilesVisible ? <ImageIcon /> : <HideImageIcon />}
             </IconButton>
           </Tooltip>
-
-          <Divider orientation="vertical" flexItem sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
-
-          {/* Tile Editor Toggle */}
-          <Tooltip title={isEditing ? "Exit Tile Editor" : "Enter Tile Editor"}>
-            <IconButton
-              size="small"
-              onClick={handleEditToggle}
-              sx={{ 
-                color: 'white',
-                backgroundColor: isEditing ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
-              }}
-            >
-              {isEditing ? <EditOffIcon /> : <EditIcon />}
-            </IconButton>
-          </Tooltip>
         </Box>
 
-        <Divider orientation="vertical" flexItem sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
-        
-        {/* Settings */}
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
+
+        {/* Tile Editor Toggle */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title={isEditing ? "Close Tile Editor" : "Open Tile Editor"}>
+            <IconButton
+              onClick={handleEditToggle}
+              disabled={isLocked}
+              sx={{ color: isEditing ? '#4caf50' : 'rgba(255,255,255,0.5)' }}
+            >
+              {isEditing ? <EditIcon /> : <EditOffIcon />}
+            </IconButton>
+          </Tooltip>
+          
+          <Typography variant="body2" sx={{ opacity: 0.8 }}>
+            {isEditing ? '🎨' : '📋'}
+          </Typography>
+        </Box>
+
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
+
+        {/* Mouse Position Display */}
+        <Typography variant="caption" sx={{ opacity: 0.6 }}>
+          🖱️ {formatPosition(hoveredCellSnap.x, hoveredCellSnap.y)}
+        </Typography>
+
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
+
+        {/* Settings Button */}
         <SettingsButton />
       </Paper>
 
-      {/* Editor Panels - Positioned on the right side */}
+      {/* Z-Layer Selector */}
+      <ZLayerSelector isLocked={isLocked} />
+
+      {/* Tile Editor Panels */}
       {isEditing && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 16,
-            right: 16,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            maxWidth: '320px',
-            maxHeight: 'calc(100vh - 32px)',
-            overflow: 'auto'
-          }}
-        >
-          {/* Isometric Sprite Selector */}
-          <IsometricSpriteSelector isLocked={isLocked} />
+        <>
+          {/* Sprite Selector - Left Side */}
+          <Box sx={{ 
+            position: 'absolute', 
+            top: 80,
+            left: 16,
+            zIndex: 1000
+          }}>
+            <IsometricSpriteSelector isLocked={isLocked} />
+          </Box>
           
-          {/* Traditional Tile Editor Panel */}
-          <TileEditorPanel isLocked={isLocked} />
-        </Box>
+          {/* Configuration Panel with Utils - Right Side */}
+          <Box sx={{ 
+            position: 'absolute', 
+            top: 80,
+            right: 16,
+            zIndex: 1000
+          }}>
+            <IsometricConfigurationPanel isLocked={isLocked} />
+          </Box>
+        </>
       )}
     </>
   );

@@ -29,9 +29,18 @@ export class IsometricInteractionsManager {
   // Context menu event handler reference for cleanup
   private contextMenuHandler: ((event: Event) => boolean) | null = null;
   
+  // Keyboard event handlers for cleanup
+  private keyDownHandler: ((event: KeyboardEvent) => void) | null = null;
+  
   // Click throttling to prevent rapid inputs
   private lastClickTime: number = 0;
   private readonly CLICK_THROTTLE_MS = 300;
+  
+  // NEW: Mouse drag painting state
+  private isDragging: boolean = false;
+  private isMiddleClickDragging: boolean = false; // NEW: Track middle-click dragging
+  private dragStartPosition: { x: number; y: number } | null = null;
+  private lastDragGridPosition: { x: number; y: number } | null = null;
   
   /**
    * Initialize the interactions manager
@@ -51,6 +60,9 @@ export class IsometricInteractionsManager {
     
     // Create hit area for event handling
     this.createHitArea();
+    
+    // Set up keyboard shortcuts
+    this.setupKeyboardShortcuts();
     
     console.log('[IsometricInteractionsManager] Initialized with UI layer and isometric coordinate conversion');
   }
@@ -73,8 +85,10 @@ export class IsometricInteractionsManager {
     this.hitArea.cursor = 'crosshair';
     
     // Set up event listeners
-    this.hitArea.on('pointermove', this.handlePointerMove.bind(this));
     this.hitArea.on('pointerdown', this.handlePointerDown.bind(this));
+    this.hitArea.on('pointermove', this.handlePointerMove.bind(this));
+    this.hitArea.on('pointerup', this.handlePointerUp.bind(this));
+    this.hitArea.on('pointerleave', this.handlePointerLeave.bind(this));
     
     // Prevent browser context menu on right-click
     this.hitArea.on('rightclick', (event: FederatedPointerEvent) => {
@@ -96,6 +110,63 @@ export class IsometricInteractionsManager {
     this.layer.addChild(this.hitArea);
     
     console.log('[IsometricInteractionsManager] Hit area created and added to UI layer');
+  }
+  
+  /**
+   * Set up keyboard shortcuts for layer switching and other controls
+   */
+  private setupKeyboardShortcuts(): void {
+    // Set up keyboard event listener for layer switching (1-9) and sprite rotation (Z/X)
+    this.keyDownHandler = (event: KeyboardEvent) => {
+      // Skip if modifier keys are pressed or controls are locked
+      if (event.ctrlKey || event.altKey || event.metaKey || battlemapStore.controls.isLocked) return;
+      
+      // NEW: Skip if user is typing in any input field or textarea
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.hasAttribute('contenteditable')
+      )) {
+        console.log('[IsometricInteractionsManager] Skipping shortcuts - user is typing in input field');
+        return;
+      }
+      
+      const key = event.key.toLowerCase();
+      
+      // Handle layer switching with number keys 1-9
+      if (/^[1-9]$/.test(key)) {
+        const layerIndex = parseInt(key, 10) - 1; // Convert to 0-based index
+        const maxLayers = battlemapActions.getAllZLayerConfigs().length;
+        
+        if (layerIndex < maxLayers) {
+          event.preventDefault();
+          battlemapActions.setActiveZLayer(layerIndex);
+          console.log(`[IsometricInteractionsManager] Switched to layer ${layerIndex} via keyboard`);
+        }
+      }
+      
+      // NEW: Handle sprite rotation with Z/X keys
+      if (key === 'z' || key === 'x') {
+        const currentDirection = battlemapStore.controls.isometricEditor.selectedSpriteDirection;
+        let newDirection: number;
+        
+        if (key === 'z') {
+          // Z = rotate left (counterclockwise)
+          newDirection = (currentDirection - 1 + 4) % 4;
+        } else {
+          // X = rotate right (clockwise) 
+          newDirection = (currentDirection + 1) % 4;
+        }
+        
+        event.preventDefault();
+        battlemapActions.setSelectedSpriteDirection(newDirection as IsometricDirection);
+        console.log(`[IsometricInteractionsManager] Rotated sprite ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection}`);
+      }
+    };
+    
+    window.addEventListener('keydown', this.keyDownHandler);
+    console.log('[IsometricInteractionsManager] Keyboard shortcuts set up (1-9 for layers, Z/X for sprite rotation)');
   }
   
   /**
@@ -129,65 +200,156 @@ export class IsometricInteractionsManager {
   }
   
   /**
-   * Handle pointer movement for hover effects
-   */
-  private handlePointerMove(event: FederatedPointerEvent): void {
-    const snap = battlemapStore;
-    
-    // Skip handling during WASD movement for better performance
-    if (snap.view.wasd_moving) return;
-    
-    // Convert to grid coordinates using isometric transformation
-    const mouseX = event.global.x;
-    const mouseY = event.global.y;
-    
-    const { gridX, gridY } = this.pixelToGrid(mouseX, mouseY);
-    
-    // Always update hovered cell position
-    battlemapActions.setHoveredCell(gridX, gridY);
-  }
-  
-  /**
-   * Handle pointer down (click) events
+   * Handle pointer down events (mouse clicks)
    */
   private handlePointerDown(event: FederatedPointerEvent): void {
-    const snap = battlemapStore;
+    if (battlemapStore.controls.isLocked) return;
     
-    // Skip handling during WASD movement
-    if (snap.view.wasd_moving) return;
-    
-    // Throttle clicks to prevent rapid inputs
+    // Throttle rapid clicks to prevent performance issues
     const currentTime = Date.now();
     if (currentTime - this.lastClickTime < this.CLICK_THROTTLE_MS) {
-      console.log(`[IsometricInteractionsManager] Click throttled (${currentTime - this.lastClickTime}ms since last click)`);
+      console.log('[IsometricInteractionsManager] Click throttled');
       return;
     }
     this.lastClickTime = currentTime;
     
-    // Convert to grid coordinates using isometric transformation
     const mouseX = event.global.x;
     const mouseY = event.global.y;
     
-    const { gridX, gridY, inBounds } = this.pixelToGrid(mouseX, mouseY);
+    const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
+    if (!gridResult || !gridResult.inBounds) return;
     
-    if (!inBounds) return;
+    const { gridX, gridY } = gridResult;
+    const snap = battlemapStore;
     
-    console.log(`[IsometricInteractionsManager] Click at screen (${mouseX}, ${mouseY}) -> grid (${gridX}, ${gridY})`);
+    // Determine snap position based on button clicked
+    const isRightClick = event.button === 2; // Right mouse button
+    const isMiddleClick = event.button === 1; // Middle mouse button
+    const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
+    
+    console.log(`[IsometricInteractionsManager] ${isMiddleClick ? 'Middle' : (isRightClick ? 'Right' : 'Left')} click at screen (${mouseX}, ${mouseY}) -> grid (${gridX}, ${gridY}) -> snap ${snapPosition}`);
+    
+    // Handle middle click deletion
+    if (isMiddleClick && snap.controls.isEditing && !snap.controls.isLocked) {
+      this.handleTileDelete(gridX, gridY);
+      
+      // NEW: Start middle-click drag for continuous deletion
+      this.isMiddleClickDragging = true;
+      this.dragStartPosition = { x: mouseX, y: mouseY };
+      this.lastDragGridPosition = { x: gridX, y: gridY };
+      console.log(`[IsometricInteractionsManager] Started middle-click drag deletion at (${gridX}, ${gridY})`);
+      return;
+    }
     
     // Handle tile editing if enabled and not locked
     if (snap.controls.isEditing && !snap.controls.isLocked) {
-      this.handleTileEdit(gridX, gridY);
-      return;
+      this.handleTileEdit(gridX, gridY, snapPosition);
+      
+      // NEW: Start drag tracking for left/right clicks
+      if (!isMiddleClick) {
+        this.isDragging = true;
+        this.dragStartPosition = { x: mouseX, y: mouseY };
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Started drag painting at (${gridX}, ${gridY})`);
+      }
     }
+  }
+  
+  /**
+   * Handle pointer move events (mouse move for drag painting)
+   */
+  private handlePointerMove(event: FederatedPointerEvent): void {
+    const mouseX = event.global.x;
+    const mouseY = event.global.y;
+    
+    // Update hovered cell for highlight
+    const gridResult = this.isometricGridRenderer?.screenToGrid(mouseX, mouseY);
+    if (gridResult?.inBounds) {
+      battlemapActions.setHoveredCell(gridResult.gridX, gridResult.gridY);
+    } else {
+      battlemapActions.setHoveredCell(-1, -1);
+    }
+    
+    // NEW: Handle middle-click drag deletion
+    if (this.isMiddleClickDragging && gridResult?.inBounds && battlemapStore.controls.isEditing && !battlemapStore.controls.isLocked) {
+      const { gridX, gridY } = gridResult;
+      
+      // Only delete if we moved to a different grid cell
+      if (this.lastDragGridPosition && 
+          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+        
+        this.handleTileDelete(gridX, gridY);
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Middle-click drag deleted tile at (${gridX}, ${gridY})`);
+      }
+    }
+    
+    // NEW: Handle left/right-click drag painting
+    if (this.isDragging && gridResult?.inBounds && battlemapStore.controls.isEditing && !battlemapStore.controls.isLocked) {
+      const { gridX, gridY } = gridResult;
+      
+      // Only paint if we moved to a different grid cell
+      if (this.lastDragGridPosition && 
+          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+        
+        // Use the same snap position as the initial click (above for left click, below for right click)
+        const snapPosition: 'above' | 'below' = 'above'; // Default to above for drag
+        
+        this.handleTileEdit(gridX, gridY, snapPosition);
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Drag painted tile at (${gridX}, ${gridY})`);
+      }
+    }
+  }
+  
+  /**
+   * Handle pointer up events (stop drag painting)
+   */
+  private handlePointerUp(event: FederatedPointerEvent): void {
+    if (this.isDragging) {
+      this.isDragging = false;
+      this.dragStartPosition = null;
+      this.lastDragGridPosition = null;
+      console.log('[IsometricInteractionsManager] Stopped drag painting');
+    }
+    
+    if (this.isMiddleClickDragging) {
+      this.isMiddleClickDragging = false;
+      this.dragStartPosition = null;
+      this.lastDragGridPosition = null;
+      console.log('[IsometricInteractionsManager] Stopped middle-click drag deletion');
+    }
+  }
+  
+  /**
+   * Handle pointer leave events (stop drag painting when mouse leaves area)
+   */
+  private handlePointerLeave(event: FederatedPointerEvent): void {
+    // Stop dragging when mouse leaves the interaction area
+    if (this.isDragging) {
+      this.isDragging = false;
+      this.dragStartPosition = null;
+      this.lastDragGridPosition = null;
+      console.log('[IsometricInteractionsManager] Stopped drag painting (mouse left area)');
+    }
+    
+    if (this.isMiddleClickDragging) {
+      this.isMiddleClickDragging = false;
+      this.dragStartPosition = null;
+      this.lastDragGridPosition = null;
+      console.log('[IsometricInteractionsManager] Stopped middle-click drag deletion (mouse left area)');
+    }
+    
+    // Clear hover highlight
+    battlemapActions.setHoveredCell(-1, -1);
   }
   
   /**
    * Handle tile editing - isometric sprite system only
    */
-  private async handleTileEdit(gridX: number, gridY: number): Promise<void> {
-    const snap = battlemapStore;
-    const selectedTileType = snap.controls.selectedTileType;
-    const isometricEditor = snap.controls.isometricEditor;
+  private async handleTileEdit(gridX: number, gridY: number, snapPosition: 'above' | 'below'): Promise<void> {
+    const selectedTileType = battlemapStore.controls.selectedTileType;
+    const isometricEditor = battlemapStore.controls.isometricEditor;
     
     console.log(`[IsometricInteractionsManager] Tile edit at (${gridX}, ${gridY})`);
     console.log(`[IsometricInteractionsManager] Selected sprite: ${isometricEditor.selectedSpriteName}, Z-level: ${isometricEditor.selectedZLevel}`);
@@ -206,7 +368,7 @@ export class IsometricInteractionsManager {
         
         // Use isometric sprite system
         console.log(`[IsometricInteractionsManager] Placing isometric sprite: ${isometricEditor.selectedSpriteName}`);
-        this.handleIsometricSpriteEdit(gridX, gridY);
+        this.handleIsometricSpriteEdit(gridX, gridY, snapPosition);
       }
     } catch (error) {
       console.error(`[IsometricInteractionsManager] Error editing tile at (${gridX}, ${gridY}):`, error);
@@ -216,15 +378,14 @@ export class IsometricInteractionsManager {
   /**
    * Handle isometric sprite placement
    */
-  private handleIsometricSpriteEdit(gridX: number, gridY: number): void {
-    const snap = battlemapStore;
-    const isometricEditor = snap.controls.isometricEditor;
+  private handleIsometricSpriteEdit(gridX: number, gridY: number, snapPosition: 'above' | 'below'): void {
+    const isometricEditor = battlemapStore.controls.isometricEditor;
     
     if (!isometricEditor.selectedSpriteName) {
       console.warn('[IsometricInteractionsManager] No sprite selected for isometric tile edit');
       return;
     }
-
+    
     // Handle brush size for multi-tile painting
     const brushSize = isometricEditor.brushSize;
     const halfBrush = Math.floor(brushSize / 2);
@@ -235,7 +396,7 @@ export class IsometricInteractionsManager {
         const targetY = gridY + dy;
 
         // Check bounds
-        if (targetX < 0 || targetY < 0 || targetX >= snap.grid.width || targetY >= snap.grid.height) {
+        if (targetX < 0 || targetY < 0 || targetX >= battlemapStore.grid.width || targetY >= battlemapStore.grid.height) {
           continue;
         }
 
@@ -250,12 +411,24 @@ export class IsometricInteractionsManager {
           z_level: isometricEditor.selectedZLevel,
           sprite_direction: isometricEditor.selectedSpriteDirection,
           tile_type: this.getSpriteTileType(isometricEditor.selectedSpriteName),
+          snap_position: snapPosition,
         };
 
         battlemapActions.addIsometricTile(newTile);
         console.log(`[IsometricInteractionsManager] Created isometric tile at (${targetX}, ${targetY}, Z:${isometricEditor.selectedZLevel}) with sprite: ${isometricEditor.selectedSpriteName}`);
       }
     }
+  }
+  
+  /**
+   * Handle tile deletion (middle mouse click)
+   */
+  private handleTileDelete(gridX: number, gridY: number): void {
+    const isometricEditor = battlemapStore.controls.isometricEditor;
+    
+    // Delete tile at the active Z level
+    battlemapActions.removeIsometricTile(gridX, gridY, isometricEditor.selectedZLevel);
+    console.log(`[IsometricInteractionsManager] Middle-click deleted tile at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel})`);
   }
   
   /**
@@ -279,7 +452,7 @@ export class IsometricInteractionsManager {
     if (name.includes('floor')) return 'floor';
     return 'decoration';
   }
-  
+
   /**
    * Resize handler
    */
@@ -297,6 +470,12 @@ export class IsometricInteractionsManager {
     if (this.contextMenuHandler && this.engine?.app?.canvas) {
       this.engine.app.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
       this.contextMenuHandler = null;
+    }
+    
+    // Remove keyboard handler
+    if (this.keyDownHandler) {
+      window.removeEventListener('keydown', this.keyDownHandler);
+      this.keyDownHandler = null;
     }
     
     // Clean up hit area

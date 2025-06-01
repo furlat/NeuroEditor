@@ -203,7 +203,7 @@ export function calculateIsometricGridOffset(
  * @param centerX Center X coordinate of the diamond
  * @param centerY Center Y coordinate of the diamond
  * @param gridDiamondWidth Width of the diamond grid in pixels
- * @param strokeOffset Optional stroke offset for grid lines
+ * @param strokeOffset Optional stroke offset for grid lines (usually strokeWidth / 2)
  * @returns Diamond corner coordinates
  */
 export function calculateIsometricDiamondCorners(
@@ -218,20 +218,20 @@ export function calculateIsometricDiamondCorners(
   leftX: number; leftY: number;
 } {
   // Use dynamic grid diamond width with 2:1 aspect ratio
-  const tileWidthHalf = gridDiamondWidth / 2;
-  const tileHeightHalf = (gridDiamondWidth / 2) / 2; // 2:1 aspect ratio
+  const tileWidthHalf = (gridDiamondWidth / 2) - strokeOffset;
+  const tileHeightHalf = ((gridDiamondWidth / 2) / 2) - strokeOffset; // 2:1 aspect ratio
   
   return {
     topX: centerX,
-    topY: centerY - tileHeightHalf + strokeOffset,
+    topY: centerY - tileHeightHalf,
     
-    rightX: centerX + tileWidthHalf - strokeOffset,
+    rightX: centerX + tileWidthHalf,
     rightY: centerY,
     
     bottomX: centerX,
-    bottomY: centerY + tileHeightHalf - strokeOffset,
+    bottomY: centerY + tileHeightHalf,
     
-    leftX: centerX - tileWidthHalf + strokeOffset,
+    leftX: centerX - tileWidthHalf,
     leftY: centerY
   };
 }

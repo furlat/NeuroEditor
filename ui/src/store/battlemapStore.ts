@@ -3,6 +3,33 @@ import { TileSummary } from '../types/battlemap_types';
 import type { DeepReadonly } from '../types/common';
 import { TileType } from '../hooks/battlemap';
 import { IsometricDirection, SpriteCategory } from '../game/managers/IsometricSpriteManager';
+import { isometricSpriteManager } from '../game/managers/IsometricSpriteManager';
+
+// Z-layer configuration - NOW MUTABLE for user control
+export const Z_LAYER_CONFIG = {
+  maxLayers: 3
+} as const;
+
+// Layer visibility modes
+export enum LayerVisibilityMode {
+  SHADOW = 'shadow',     // All tiles visible, inactive layers dimmed/tinted
+  INVISIBLE = 'invisible', // Only active layer tiles visible
+  NORMAL = 'normal'      // All tiles visible with full opacity
+}
+
+// NEW: Vertical bias computation modes
+export enum VerticalBiasComputationMode {
+  ROUND_DOWN = 'round_down',    // Math.floor (original)
+  ROUND_UP = 'round_up',        // Math.ceil  
+  SNAP_TO_NEAREST = 'snap_to_nearest' // Compute then snap to nearest value between 36-196
+}
+
+// Default Z-layer settings (moved to store for user control)
+export const DEFAULT_Z_LAYER_SETTINGS = [
+  { z: 0, verticalOffset: 0, name: 'Ground', color: 0x444444 },
+  { z: 1, verticalOffset: 36, name: 'Level 1', color: 0x666666 },
+  { z: 2, verticalOffset: 196, name: 'Level 2', color: 0x888888 },
+];
 
 // Enhanced types for isometric editing
 export interface IsometricEditorState {
@@ -12,11 +39,19 @@ export interface IsometricEditorState {
   selectedSpriteCategory: SpriteCategory;
   brushSize: number; // For painting multiple tiles at once
   isDirectionalMode: boolean; // Whether to auto-select direction based on neighbors
-  // Per-sprite positioning settings
-  spriteSettings: Record<string, {
-    verticalOffset: number;
-    invisibleMargin: number;
-    isAutoCalculated: boolean; // Whether using formula or manual override
+  // EXACT USER SPECIFICATION: Per-sprite-type positioning settings
+  spriteTypeSettings: Record<string, {
+    // 4-directional invisible margins
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    // Auto-computed vertical bias (from width/2 and normalized height formula)
+    autoComputedVerticalBias: number;
+    // Whether to use auto-computed or manual
+    useAutoComputed: boolean;
+    // User provided manual bias (shown in menu, initially set to auto-computed)
+    manualVerticalBias: number;
   }>;
 }
 
@@ -33,17 +68,26 @@ export interface ViewState {
   hoveredCell: { x: number; y: number };
   wasd_moving: boolean;
   // Enhanced view controls for isometric rendering
-  showZLevel: number; // Which Z level to display (-1 for all)
+  showZLevel: number; // Which Z level to display (-1 for all) - DEPRECATED in favor of individual flags
   zoomLevel: number; // Separate zoom tracking
   // Manual grid and sprite controls
-  gridDiamondWidth: number; // Width of the diamond grid in pixels
+  gridDiamondWidth: number; // Width of the diamond grid in pixels (default reference)
   spriteScale: number; // Scale multiplier for sprites (independent of grid)
-  spriteVerticalOffset: number; // Vertical offset for sprite positioning relative to anchor
-  spriteInvisibleMargin: number; // Invisible margin for internal positioning adjustments
-  // Calculation-only variables (don't affect rendering, only predictions)
-  calcMarginUp: number; // Top margin for calculation purposes
-  calcMarginLeft: number; // Left margin for calculation purposes  
-  calcMarginRight: number; // Right margin for calculation purposes
+  // REFACTORED: 4-directional invisible margins (default reference values)
+  invisibleMarginUp: number;    // Top margin for sprite positioning
+  invisibleMarginDown: number;  // Bottom margin for sprite positioning  
+  invisibleMarginLeft: number;  // Left margin for sprite positioning
+  invisibleMarginRight: number; // Right margin for sprite positioning
+  // Z-layer system
+  activeZLayer: number; // Currently active Z layer for editing (0, 1, 2)
+  // Layer visual effects
+  layerVisibilityMode: LayerVisibilityMode; // How layers are displayed
+  // NEW: Independent grid layer visibility flags
+  gridLayerVisibility: { [zLayer: number]: boolean }; // Individual visibility for each grid layer
+  // NEW: User-configurable Z-layer heights
+  zLayerHeights: Array<{ z: number; verticalOffset: number; name: string; color: number }>;
+  // NEW: Vertical bias computation method
+  verticalBiasComputationMode: VerticalBiasComputationMode; // How to round/snap computed values
 }
 
 export interface ControlState {
@@ -85,13 +129,21 @@ const battlemapStore = proxy<BattlemapStoreState>({
     wasd_moving: false,
     showZLevel: -1, // Show all levels by default
     zoomLevel: 1.0,
-    gridDiamondWidth: 400, // Updated to user's working value
+    gridDiamondWidth: 400, // Updated to user's preferred value (was 402)
     spriteScale: 1.0, // Keep at original size
-    spriteVerticalOffset: 35, // User's working vertical offset
-    spriteInvisibleMargin: 8, // User's working invisible margin
-    calcMarginUp: 0,
-    calcMarginLeft: 0,
-    calcMarginRight: 0,
+    invisibleMarginUp: 8, // User's working top margin
+    invisibleMarginDown: 8, // User's working bottom margin
+    invisibleMarginLeft: 8, // User's working left margin
+    invisibleMarginRight: 8, // User's working right margin
+    activeZLayer: 0,
+    layerVisibilityMode: LayerVisibilityMode.NORMAL,
+    gridLayerVisibility: {
+      0: true,   // Only layer 0 visible by default (will be updated by setActiveZLayer)
+      1: false,  // Other layers hidden by default
+      2: false,
+    },
+    zLayerHeights: DEFAULT_Z_LAYER_SETTINGS,
+    verticalBiasComputationMode: VerticalBiasComputationMode.SNAP_TO_NEAREST,
   },
   controls: {
     isLocked: false,
@@ -108,7 +160,7 @@ const battlemapStore = proxy<BattlemapStoreState>({
       selectedSpriteCategory: SpriteCategory.BLOCKS,
       brushSize: 1,
       isDirectionalMode: false,
-      spriteSettings: {},
+      spriteTypeSettings: {},
     },
   },
   loading: false,
@@ -140,14 +192,32 @@ const battlemapActions = {
       battlemapStore.grid.maxZLevel = tile.z_level;
     }
     
-    console.log('[battlemapStore] Added isometric tile:', tile);
+    console.log('[battlemapStore] Added isometric tile:', tile, '- FORCING RENDER');
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
   },
 
   removeIsometricTile: (x: number, y: number, z: number) => {
     const posKey = `${x},${y},${z}`;
     if (battlemapStore.grid.tiles[posKey]) {
       delete battlemapStore.grid.tiles[posKey];
-      console.log('[battlemapStore] Removed isometric tile at:', [x, y, z]);
+      console.log('[battlemapStore] Removed isometric tile at:', [x, y, z], '- FORCING RENDER');
+      
+      // Force immediate re-render by triggering a dummy change
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      // Also trigger manual renders if available
+      setTimeout(() => {
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
     }
   },
 
@@ -156,7 +226,16 @@ const battlemapActions = {
     const existingTile = battlemapStore.grid.tiles[posKey];
     if (existingTile) {
       battlemapStore.grid.tiles[posKey] = { ...existingTile, ...updates };
-      console.log('[battlemapStore] Updated isometric tile at:', [x, y, z]);
+      console.log('[battlemapStore] Updated isometric tile at:', [x, y, z], '- FORCING RENDER');
+      
+      // Force immediate re-render by triggering a dummy change
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      // Also trigger manual renders if available
+      setTimeout(() => {
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
     }
   },
 
@@ -184,6 +263,31 @@ const battlemapActions = {
   // Enhanced view controls
   setShowZLevel: (zLevel: number) => {
     battlemapStore.view.showZLevel = zLevel;
+    
+    // Also update individual grid layer visibility for backwards compatibility
+    if (zLevel === -1) {
+      // Show all layers
+      battlemapStore.view.gridLayerVisibility[0] = true;
+      battlemapStore.view.gridLayerVisibility[1] = true;
+      battlemapStore.view.gridLayerVisibility[2] = true;
+    } else {
+      // Show only specific layer
+      battlemapStore.view.gridLayerVisibility[0] = zLevel === 0;
+      battlemapStore.view.gridLayerVisibility[1] = zLevel === 1;
+      battlemapStore.view.gridLayerVisibility[2] = zLevel === 2;
+    }
+    
+    console.log(`[battlemapStore] Show Z level set to: ${zLevel} - FORCING RENDER`);
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
   },
   
   setZoomLevel: (zoom: number) => {
@@ -198,24 +302,91 @@ const battlemapActions = {
     battlemapStore.view.spriteScale = Math.max(0.1, Math.min(5.0, scale));
   },
   
-  setSpriteVerticalOffset: (offset: number) => {
-    battlemapStore.view.spriteVerticalOffset = offset;
+  setInvisibleMarginUp: (margin: number) => {
+    battlemapStore.view.invisibleMarginUp = margin;
   },
   
-  setSpriteInvisibleMargin: (margin: number) => {
-    battlemapStore.view.spriteInvisibleMargin = margin;
+  setInvisibleMarginDown: (margin: number) => {
+    battlemapStore.view.invisibleMarginDown = margin;
   },
   
-  setCalcMarginUp: (margin: number) => {
-    battlemapStore.view.calcMarginUp = margin;
+  setInvisibleMarginLeft: (margin: number) => {
+    battlemapStore.view.invisibleMarginLeft = margin;
   },
   
-  setCalcMarginLeft: (margin: number) => {
-    battlemapStore.view.calcMarginLeft = margin;
+  setInvisibleMarginRight: (margin: number) => {
+    battlemapStore.view.invisibleMarginRight = margin;
   },
   
-  setCalcMarginRight: (margin: number) => {
-    battlemapStore.view.calcMarginRight = margin;
+  // Z-layer management actions
+  setActiveZLayer: (zLayer: number) => {
+    const clampedLayer = Math.max(0, Math.min(Z_LAYER_CONFIG.maxLayers - 1, zLayer));
+    const oldActiveLayer = battlemapStore.view.activeZLayer;
+    battlemapStore.view.activeZLayer = clampedLayer;
+    
+    // FIXED: Default behavior - only show current layer's grid
+    // Hide old active layer's grid, show new active layer's grid
+    // (Individual toggles can override this)
+    battlemapStore.view.gridLayerVisibility[oldActiveLayer] = false;
+    battlemapStore.view.gridLayerVisibility[clampedLayer] = true;
+    
+    // Also update the selected Z level for tile placement
+    battlemapStore.controls.isometricEditor.selectedZLevel = clampedLayer;
+    console.log(`[battlemapStore] Active Z layer set to: ${clampedLayer} (${DEFAULT_Z_LAYER_SETTINGS[clampedLayer].name}) - FORCING RENDER`);
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+  
+  setLayerVisibilityMode: (mode: LayerVisibilityMode) => {
+    battlemapStore.view.layerVisibilityMode = mode;
+    console.log(`[battlemapStore] Layer visibility mode set to: ${mode} - FORCING RENDER`);
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+  
+  cycleLayerVisibilityMode: () => {
+    const currentMode = battlemapStore.view.layerVisibilityMode;
+    let nextMode: LayerVisibilityMode;
+    
+    switch (currentMode) {
+      case LayerVisibilityMode.NORMAL:
+        nextMode = LayerVisibilityMode.SHADOW;
+        break;
+      case LayerVisibilityMode.SHADOW:
+        nextMode = LayerVisibilityMode.INVISIBLE;
+        break;
+      case LayerVisibilityMode.INVISIBLE:
+        nextMode = LayerVisibilityMode.NORMAL;
+        break;
+      default:
+        nextMode = LayerVisibilityMode.NORMAL;
+    }
+    
+    battlemapActions.setLayerVisibilityMode(nextMode);
+  },
+  
+  getActiveZLayerConfig: () => {
+    return battlemapStore.view.zLayerHeights[battlemapStore.view.activeZLayer];
+  },
+  
+  getAllZLayerConfigs: () => {
+    return battlemapStore.view.zLayerHeights;
   },
   
   // Controls actions
@@ -276,34 +447,139 @@ const battlemapActions = {
     battlemapStore.controls.isometricEditor.isDirectionalMode = enabled;
   },
   
-  // Per-sprite positioning settings
+  // EXACT USER SPECIFICATION: Per-sprite-type positioning settings
+  setSpriteTypeSettings: (spriteName: string, settings: {
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    autoComputedVerticalBias: number;
+    useAutoComputed: boolean;
+    manualVerticalBias: number;
+  }) => {
+    console.log(`[battlemapStore] Setting sprite type settings for ${spriteName}:`, settings);
+    battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = settings;
+    
+    // Force immediate re-render by triggering a dummy change to ensure reactivity
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+  
+  getSpriteTypeSettings: (spriteName: string) => {
+    return battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] || null;
+  },
+  
+  // EXACT USER SPECIFICATION: Calculate positioning using 4-directional margins and width/2 formula
+  calculateSpriteTypePositioning: (spriteWidth: number, spriteHeight: number, margins?: {
+    up?: number; down?: number; left?: number; right?: number;
+  }) => {
+    // Use provided margins or defaults from store
+    const marginUp = margins?.up ?? battlemapStore.view.invisibleMarginUp;
+    const marginDown = margins?.down ?? battlemapStore.view.invisibleMarginDown;
+    const marginLeft = margins?.left ?? battlemapStore.view.invisibleMarginLeft;
+    const marginRight = margins?.right ?? battlemapStore.view.invisibleMarginRight;
+    
+    // USER'S EXACT FORMULA:
+    // 1. Take sprite width/2
+    const spriteWidthHalf = spriteWidth / 2;
+    
+    // 2. Normalize dimensions by removing margins
+    const normalizedWidth = spriteWidth - marginLeft - marginRight;
+    const normalizedHeight = spriteHeight - marginUp - marginDown;
+    
+    // 3. Calculate vertical bias: normalized height - (normalized width / 2)
+    const autoComputedVerticalBias = normalizedHeight - (normalizedWidth / 2);
+    
+    // NEW: Apply user's preferred computation method
+    let roundedBias: number;
+    
+    switch (battlemapStore.view.verticalBiasComputationMode) {
+      case VerticalBiasComputationMode.ROUND_UP:
+        roundedBias = Math.ceil(autoComputedVerticalBias);
+        break;
+      case VerticalBiasComputationMode.ROUND_DOWN:
+        roundedBias = Math.floor(autoComputedVerticalBias);
+        break;
+      case VerticalBiasComputationMode.SNAP_TO_NEAREST:
+        // Compute the value, then snap to nearest between 36 and 196
+        const computedValue = autoComputedVerticalBias;
+        
+        // Define the target values (36 and 196 are the key offsets for sprites)
+        const targetValues = [36, 196];
+        
+        // Find the closest target value
+        let closestValue = targetValues[0];
+        let minDistance = Math.abs(computedValue - targetValues[0]);
+        
+        for (const target of targetValues) {
+          const distance = Math.abs(computedValue - target);
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestValue = target;
+          }
+        }
+        
+        roundedBias = closestValue;
+        console.log(`[battlemapStore] Snap-to-nearest: computed ${computedValue.toFixed(1)} -> snapped to ${closestValue} (distance: ${minDistance.toFixed(1)})`);
+        break;
+      default:
+        roundedBias = Math.floor(autoComputedVerticalBias);
+    }
+    
+    return {
+      invisibleMarginUp: marginUp,
+      invisibleMarginDown: marginDown,
+      invisibleMarginLeft: marginLeft,
+      invisibleMarginRight: marginRight,
+      autoComputedVerticalBias: roundedBias,
+      useAutoComputed: true,
+      manualVerticalBias: roundedBias // Initially set to auto-computed
+    };
+  },
+  
+  // LEGACY COMPATIBILITY: Functions for backward compatibility (deprecated)
   setSpritePositioning: (spriteName: string, verticalOffset: number, invisibleMargin: number, isAutoCalculated: boolean = false) => {
-    battlemapStore.controls.isometricEditor.spriteSettings[spriteName] = {
-      verticalOffset,
-      invisibleMargin,
-      isAutoCalculated
+    // Convert old single margin to 4-directional for backward compatibility
+    console.warn('[battlemapStore] setSpritePositioning is deprecated, use setSpriteTypeSettings instead');
+    battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = {
+      invisibleMarginUp: invisibleMargin,
+      invisibleMarginDown: invisibleMargin,
+      invisibleMarginLeft: invisibleMargin,
+      invisibleMarginRight: invisibleMargin,
+      autoComputedVerticalBias: verticalOffset,
+      useAutoComputed: isAutoCalculated,
+      manualVerticalBias: verticalOffset
     };
   },
   
   getSpritePositioning: (spriteName: string) => {
-    return battlemapStore.controls.isometricEditor.spriteSettings[spriteName] || null;
-  },
-  
-  // Calculate positioning using the user's formula
-  calculateSpritePositioning: (spriteWidth: number, spriteHeight: number, invisibleMargin: number = 8) => {
-    // Step 1: (WIDTH - (MARGIN + 1)) / 2 --> isometric diamond bottom height
-    const actualWidth = spriteWidth - (invisibleMargin + 1);
-    const isometricDiamondBottomHeight = actualWidth / 2;
-    
-    // Step 2: empirical height - (margin+1) - margin_above - actual height == vertical offset
-    const marginBelow = invisibleMargin;
-    const marginAbove = 4; // Estimated margin above
-    const effectiveEmpiricalHeight = spriteHeight - marginBelow - marginAbove - 1;
-    const calculatedVerticalOffset = effectiveEmpiricalHeight - isometricDiamondBottomHeight;
+    // Convert new structure back to old single margin for backward compatibility
+    console.warn('[battlemapStore] getSpritePositioning is deprecated, use getSpriteTypeSettings instead');
+    const settings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+    if (!settings) return null;
     
     return {
-      verticalOffset: Math.round(calculatedVerticalOffset),
-      invisibleMargin: invisibleMargin
+      verticalOffset: settings.useAutoComputed ? settings.autoComputedVerticalBias : settings.manualVerticalBias,
+      invisibleMargin: settings.invisibleMarginDown, // Use down margin as primary
+      isAutoCalculated: settings.useAutoComputed
+    };
+  },
+  
+  // Calculate positioning using the user's formula (deprecated)
+  calculateSpritePositioning: (spriteWidth: number, spriteHeight: number, invisibleMargin: number = 8) => {
+    console.warn('[battlemapStore] calculateSpritePositioning is deprecated, use calculateSpriteTypePositioning instead');
+    const result = battlemapActions.calculateSpriteTypePositioning(spriteWidth, spriteHeight, {
+      up: invisibleMargin, down: invisibleMargin, left: invisibleMargin, right: invisibleMargin
+    });
+    
+    return {
+      verticalOffset: result.autoComputedVerticalBias,
+      invisibleMargin: result.invisibleMarginDown
     };
   },
   
@@ -342,6 +618,7 @@ const battlemapActions = {
           z_level: 0,
           sprite_direction: IsometricDirection.SOUTH,
           tile_type: 'floor',
+          snap_position: 'above', // Default to above positioning
         };
       }
     }
@@ -349,6 +626,136 @@ const battlemapActions = {
     battlemapStore.grid.tiles = sampleTiles;
     battlemapStore.grid.maxZLevel = 0; // Only floor level now
     console.log('[battlemapStore] Generated sample isometric tiles:', Object.keys(sampleTiles).length);
+  },
+
+  // NEW: Individual grid layer visibility controls
+  setGridLayerVisibility: (zLayer: number, visible: boolean) => {
+    battlemapStore.view.gridLayerVisibility[zLayer] = visible;
+    console.log(`[battlemapStore] Grid layer ${zLayer} visibility set to: ${visible} - FORCING RENDER`);
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+    }, 0);
+  },
+  
+  toggleGridLayerVisibility: (zLayer: number) => {
+    const currentVisibility = battlemapStore.view.gridLayerVisibility[zLayer];
+    battlemapActions.setGridLayerVisibility(zLayer, !currentVisibility);
+  },
+  
+  showAllGridLayers: () => {
+    battlemapStore.view.gridLayerVisibility[0] = true;
+    battlemapStore.view.gridLayerVisibility[1] = true;
+    battlemapStore.view.gridLayerVisibility[2] = true;
+    console.log('[battlemapStore] All grid layers shown - FORCING RENDER');
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+    }, 0);
+  },
+  
+  hideAllGridLayers: () => {
+    battlemapStore.view.gridLayerVisibility[0] = false;
+    battlemapStore.view.gridLayerVisibility[1] = false;
+    battlemapStore.view.gridLayerVisibility[2] = false;
+    console.log('[battlemapStore] All grid layers hidden - FORCING RENDER');
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+    }, 0);
+  },
+
+  // NEW: Z-layer height controls
+  setZLayerHeight: (layerIndex: number, verticalOffset: number) => {
+    if (layerIndex >= 0 && layerIndex < battlemapStore.view.zLayerHeights.length) {
+      battlemapStore.view.zLayerHeights[layerIndex].verticalOffset = verticalOffset;
+      console.log(`[battlemapStore] Z-layer ${layerIndex} height set to: ${verticalOffset}px - FORCING RENDER`);
+      
+      // Force immediate re-render by triggering a dummy change
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      // Also trigger manual renders if available
+      setTimeout(() => {
+        if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
+    }
+  },
+  
+  resetZLayerHeights: () => {
+    battlemapStore.view.zLayerHeights = DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer }));
+    console.log('[battlemapStore] Z-layer heights reset to defaults - FORCING RENDER');
+    
+    // Force immediate re-render by triggering a dummy change
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    // Also trigger manual renders if available
+    setTimeout(() => {
+      if ((window as any).__forceGridRender) (window as any).__forceGridRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+  
+  // NEW: Vertical bias computation method
+  setVerticalBiasComputationMode: (mode: VerticalBiasComputationMode) => {
+    battlemapStore.view.verticalBiasComputationMode = mode;
+    console.log(`[battlemapStore] Vertical bias computation mode set to: ${mode}`);
+    
+    // Force recalculation of all auto-computed sprite settings
+    const spriteSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings;
+    console.log(`[battlemapStore] Found ${Object.keys(spriteSettings).length} sprite settings to check`);
+    
+    Object.keys(spriteSettings).forEach(spriteName => {
+      const settings = spriteSettings[spriteName];
+      console.log(`[battlemapStore] Checking ${spriteName}: useAutoComputed=${settings.useAutoComputed}, current autoComputedVerticalBias=${settings.autoComputedVerticalBias}`);
+      
+      if (settings.useAutoComputed) {
+        // Get actual sprite frame size for proper recalculation
+        const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+        if (spriteFrameSize) {
+          // Recalculate using the new rounding method with actual sprite dimensions
+          const recalculated = battlemapActions.calculateSpriteTypePositioning(
+            spriteFrameSize.width, 
+            spriteFrameSize.height,
+            {
+              up: settings.invisibleMarginUp,
+              down: settings.invisibleMarginDown,
+              left: settings.invisibleMarginLeft,
+              right: settings.invisibleMarginRight
+            }
+          );
+          
+          // FIXED: Properly update the settings object to trigger Valtio reactivity
+          battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = {
+            ...settings,
+            autoComputedVerticalBias: recalculated.autoComputedVerticalBias
+          };
+          
+          console.log(`[battlemapStore] Recalculated ${spriteName}: ${settings.autoComputedVerticalBias} -> ${recalculated.autoComputedVerticalBias}px`);
+        } else {
+          console.warn(`[battlemapStore] Could not get sprite frame size for ${spriteName}`);
+        }
+      }
+    });
+    
+    console.log(`[battlemapStore] Finished recalculating sprite settings`);
   },
 };
 

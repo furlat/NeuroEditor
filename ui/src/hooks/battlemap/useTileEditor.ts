@@ -4,14 +4,18 @@ import { useSnapshot } from 'valtio';
 
 export type TileType = 'floor' | 'wall' | 'water' | 'lava' | 'grass' | 'erase';
 
+/**
+ * Hook for tile editor functionality
+ * PERFORMANCE OPTIMIZED: Only subscribes to tile editor controls
+ */
 export const useTileEditor = () => {
-  // Use the store instead of local state
-  const snap = useSnapshot(battlemapStore);
+  // PERFORMANCE FIX: Only subscribe to controls, not view/grid that change during WASD movement
+  const controlsSnap = useSnapshot(battlemapStore.controls);
   
   // Extract tile editor state from the store
-  const selectedTile = snap.controls.selectedTileType as TileType;
-  const isEditing = snap.controls.isEditing;
-  const isEditorVisible = snap.controls.isEditorVisible;
+  const selectedTile = controlsSnap.selectedTileType as TileType;
+  const isEditing = controlsSnap.isEditing;
+  const isEditorVisible = controlsSnap.isEditorVisible;
 
   const toggleEditing = useCallback(() => {
     const newEditingState = !isEditing;

@@ -10,27 +10,46 @@ const ZOOM_STEP = 0.2;
 /**
  * Hook for managing the battlemap UI controls and settings
  * Updated for isometric system with proper zoom controls
+ * PERFORMANCE OPTIMIZED: Only subscribes to control-relevant properties
  */
 export const useMapControls = () => {
-  const snap = useSnapshot(battlemapStore);
+  // PERFORMANCE FIX: Use selective snapshot to avoid re-renders during WASD movement
+  // Only subscribe to the specific properties this hook actually needs
+  const controlsSnap = useSnapshot(battlemapStore.controls);
+  const viewSnap = useSnapshot(battlemapStore.view, {
+    sync: false // Don't sync immediately - helps with performance
+  });
+  
+  // Only extract the properties we actually need for UI controls
+  const zoomLevel = viewSnap.zoomLevel;
+  const gridDiamondWidth = viewSnap.gridDiamondWidth;
+  const spriteScale = viewSnap.spriteScale;
+  const isLocked = controlsSnap.isLocked;
+  const isGridVisible = controlsSnap.isGridVisible;
+  const isTilesVisible = controlsSnap.isTilesVisible;
+  const isWasdMoving = viewSnap.wasd_moving;
+  
+  // We don't need to subscribe to offset changes for controls
+  // so we get it directly from store when needed
+  const getOffset = () => battlemapStore.view.offset;
   
   /**
    * Zoom in (increase zoom level)
    */
   const zoomIn = useCallback(() => {
-    const currentZoom = snap.view.zoomLevel;
+    const currentZoom = zoomLevel;
     const newZoom = Math.min(currentZoom + ZOOM_STEP, MAX_ZOOM);
     battlemapActions.setZoomLevel(newZoom);
-  }, [snap.view.zoomLevel]);
+  }, [zoomLevel]);
   
   /**
    * Zoom out (decrease zoom level)
    */
   const zoomOut = useCallback(() => {
-    const currentZoom = snap.view.zoomLevel;
+    const currentZoom = zoomLevel;
     const newZoom = Math.max(currentZoom - ZOOM_STEP, MIN_ZOOM);
     battlemapActions.setZoomLevel(newZoom);
-  }, [snap.view.zoomLevel]);
+  }, [zoomLevel]);
   
   /**
    * Reset view to default (reset zoom and offset)
@@ -38,8 +57,8 @@ export const useMapControls = () => {
   const resetView = useCallback(() => {
     battlemapActions.setZoomLevel(1.0); // Reset to 1x zoom
     battlemapActions.setOffset(0, 0);
-    battlemapActions.setGridDiamondWidth(200); // Updated to match sprites better
-    battlemapActions.setSpriteScale(0.5); // Updated to scale down large sprites
+    battlemapActions.setGridDiamondWidth(400); // Updated to match default value
+    battlemapActions.setSpriteScale(1.0); // Updated to match default value
   }, []);
   
   /**
@@ -49,20 +68,20 @@ export const useMapControls = () => {
     battlemapActions.setLocked(locked);
     
     // If locking, also close the tile editor
-    if (locked && snap.controls.isEditing) {
+    if (locked && controlsSnap.isEditing) {
       console.log('[MapControls] Map locked, closing tile editor');
       battlemapActions.setTileEditing(false);
       battlemapActions.setTileEditorVisible(false);
     }
-  }, [snap.controls.isEditing]);
+  }, [controlsSnap.isEditing]);
   
   /**
    * Toggle lock state
    */
   const toggleLock = useCallback(() => {
-    const newLocked = !snap.controls.isLocked;
+    const newLocked = !isLocked;
     setLocked(newLocked);
-  }, [snap.controls.isLocked, setLocked]);
+  }, [isLocked, setLocked]);
   
   /**
    * Set grid visibility
@@ -75,8 +94,8 @@ export const useMapControls = () => {
    * Toggle grid visibility
    */
   const toggleGridVisibility = useCallback(() => {
-    battlemapActions.setGridVisible(!snap.controls.isGridVisible);
-  }, [snap.controls.isGridVisible]);
+    battlemapActions.setGridVisible(!isGridVisible);
+  }, [isGridVisible]);
   
   /**
    * Set tiles visibility
@@ -89,19 +108,19 @@ export const useMapControls = () => {
    * Toggle tiles visibility
    */
   const toggleTilesVisibility = useCallback(() => {
-    battlemapActions.setTilesVisible(!snap.controls.isTilesVisible);
-  }, [snap.controls.isTilesVisible]);
+    battlemapActions.setTilesVisible(!isTilesVisible);
+  }, [isTilesVisible]);
   
   return {
     // Current state
-    zoomLevel: snap.view.zoomLevel, // Updated from tileSize
-    gridDiamondWidth: snap.view.gridDiamondWidth, // Current grid diamond width
-    spriteScale: snap.view.spriteScale, // Current sprite scale
-    offset: snap.view.offset,
-    isLocked: snap.controls.isLocked,
-    isGridVisible: snap.controls.isGridVisible,
-    isTilesVisible: snap.controls.isTilesVisible,
-    isWasdMoving: snap.view.wasd_moving, // Still exposed for UI feedback
+    zoomLevel, // Updated from tileSize
+    gridDiamondWidth, // Current grid diamond width
+    spriteScale, // Current sprite scale
+    offset: getOffset(), // Get offset when needed, not reactive
+    isLocked,
+    isGridVisible,
+    isTilesVisible,
+    isWasdMoving, // Still exposed for UI feedback
     
     // Methods
     zoomIn,
