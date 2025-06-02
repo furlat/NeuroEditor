@@ -54,20 +54,137 @@ export class IsometricSpriteManager {
 
   // Known sprite files (we'll build this dynamically later)
   private readonly knownSprites: SpriteMetadata[] = [
-    // Wall sprites
+    // ALL WALL SPRITES from /walls folder
     {
-      name: 'WallBrick_Old_Small_03',
+      name: 'Door_01',
       category: SpriteCategory.WALLS,
-      fileName: 'WallBrick_Old_Small_03.png',
-      fullPath: '/isometric_tiles/walls/WallBrick_Old_Small_03.png',
-      frameWidth: 128, // Updated - most isometric sprites are 128x128 per frame
+      fileName: 'Door_01.png',
+      fullPath: '/isometric_tiles/walls/Door_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'DoorFrame_03',
+      category: SpriteCategory.WALLS,
+      fileName: 'DoorFrame_03.png',
+      fullPath: '/isometric_tiles/walls/DoorFrame_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Door_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'Door_02.png',
+      fullPath: '/isometric_tiles/walls/Door_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Door_03',
+      category: SpriteCategory.WALLS,
+      fileName: 'Door_03.png',
+      fullPath: '/isometric_tiles/walls/Door_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'DoorFrame_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'DoorFrame_02.png',
+      fullPath: '/isometric_tiles/walls/DoorFrame_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'DoorFrame_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'DoorFrame_01.png',
+      fullPath: '/isometric_tiles/walls/DoorFrame_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Door_04',
+      category: SpriteCategory.WALLS,
+      fileName: 'Door_04.png',
+      fullPath: '/isometric_tiles/walls/Door_04.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Door_05',
+      category: SpriteCategory.WALLS,
+      fileName: 'Door_05.png',
+      fullPath: '/isometric_tiles/walls/Door_05.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Stair_Chunk_03',
+      category: SpriteCategory.WALLS,
+      fileName: 'Stair_Chunk_03.png',
+      fullPath: '/isometric_tiles/walls/Stair_Chunk_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'StairChunk_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'StairChunk_02.png',
+      fullPath: '/isometric_tiles/walls/StairChunk_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Open_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Open_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Open_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'DoorBars_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'DoorBars_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/DoorBars_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Open_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Open_Small_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Open_Small_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'DoorBars_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'DoorBars_Small_01.png',
+      fullPath: '/isometric_tiles/walls/DoorBars_Small_01.png',
+      frameWidth: 128,
       frameHeight: 128,
       totalFrames: 4
     },
     {
       name: 'WallBrick_Old_Small_01',
       category: SpriteCategory.WALLS,
-      fileName: 'WallBrick_Old_Small_01.png', 
+      fileName: 'WallBrick_Old_Small_01.png',
       fullPath: '/isometric_tiles/walls/WallBrick_Old_Small_01.png',
       frameWidth: 128,
       frameHeight: 128,
@@ -82,6 +199,169 @@ export class IsometricSpriteManager {
       frameHeight: 128,
       totalFrames: 4
     },
+    {
+      name: 'WallBrick_Old_Small_03',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Old_Small_03.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Old_Small_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBrick_Old_Tall_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Old_Tall_02.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Old_Tall_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBrick_Old_Tall_03',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Old_Tall_03.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Old_Tall_03.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Closed_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Closed_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Closed_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Stairs_Straight_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Stairs_Straight_01.png',
+      fullPath: '/isometric_tiles/walls/Stairs_Straight_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Stairs_Chunk_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Stairs_Chunk_01.png',
+      fullPath: '/isometric_tiles/walls/Stairs_Chunk_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Stairs_L_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Stairs_L_01.png',
+      fullPath: '/isometric_tiles/walls/Stairs_L_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBrick_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Small_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Small_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBars_Closed_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBars_Closed_Small_01.png',
+      fullPath: '/isometric_tiles/walls/WallBars_Closed_Small_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBrick_Old_Tall_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Old_Tall_01.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Old_Tall_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Archway_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Archway_01.png',
+      fullPath: '/isometric_tiles/walls/Archway_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Window_Large_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'Window_Large_02.png',
+      fullPath: '/isometric_tiles/walls/Window_Large_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Window_Large_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Window_Large_01.png',
+      fullPath: '/isometric_tiles/walls/Window_Large_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Window_Small_02',
+      category: SpriteCategory.WALLS,
+      fileName: 'Window_Small_02.png',
+      fullPath: '/isometric_tiles/walls/Window_Small_02.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'Window_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'Window_Small_01.png',
+      fullPath: '/isometric_tiles/walls/Window_Small_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+    {
+      name: 'WallBrick_Small_01',
+      category: SpriteCategory.WALLS,
+      fileName: 'WallBrick_Small_01.png',
+      fullPath: '/isometric_tiles/walls/WallBrick_Small_01.png',
+      frameWidth: 128,
+      frameHeight: 128,
+      totalFrames: 4
+    },
+
     // Block/Floor sprites - ALL SPRITES FROM BLOCKS DIRECTORY
     {
       name: 'UnderBlock_01',

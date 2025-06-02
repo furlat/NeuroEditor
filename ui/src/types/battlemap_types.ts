@@ -436,4 +436,79 @@ export const DEFAULT_BLOOD_SPLAT_CONFIG: BloodSplatConfig = {
     scale: 1.5,
     alpha: 1.0,
   },
-}; 
+};
+
+// NEW: Sprite Configuration System Types for JSON persistence
+export interface SpriteBoundingBoxData {
+  readonly originalWidth: number;
+  readonly originalHeight: number; 
+  readonly boundingX: number;
+  readonly boundingY: number;
+  readonly boundingWidth: number;
+  readonly boundingHeight: number;
+  readonly anchorOffsetX: number;  // Normalized anchor offset (0-1)
+  readonly anchorOffsetY: number;  // Normalized anchor offset (0-1)
+}
+
+export interface DirectionalSpriteSettings {
+  // 4-directional invisible margins
+  readonly invisibleMarginUp: number;
+  readonly invisibleMarginDown: number;
+  readonly invisibleMarginLeft: number;
+  readonly invisibleMarginRight: number;
+  
+  // Vertical positioning
+  readonly autoComputedVerticalBias: number;
+  readonly useAutoComputed: boolean;
+  readonly manualVerticalBias: number;
+  
+  // Wall-specific positioning (only for walls)
+  readonly manualHorizontalOffset?: number;
+  readonly manualDiagonalNorthEastOffset?: number;
+  readonly manualDiagonalNorthWestOffset?: number;
+  readonly relativeAlongEdgeOffset?: number;
+  readonly relativeTowardCenterOffset?: number;
+  readonly relativeDiagonalAOffset?: number;
+  readonly relativeDiagonalBOffset?: number;
+  readonly useADivisionForNorthEast?: boolean;
+  readonly useSpriteTrimmingForWalls?: boolean;
+}
+
+export interface SpriteConfiguration {
+  readonly spriteName: string;
+  readonly spriteType: 'block' | 'wall';
+  readonly version: string; // Config version for future compatibility
+  readonly lastModified: string; // ISO timestamp
+  
+  // Shared vs per-direction settings
+  readonly useSharedSettings: boolean; // If true, use sharedSettings for all directions
+  
+  // Shared settings (used when useSharedSettings is true)
+  readonly sharedSettings: DirectionalSpriteSettings;
+  
+  // Per-direction settings (used when useSharedSettings is false)
+  readonly directionalSettings: {
+    readonly [IsometricDirection.NORTH]: DirectionalSpriteSettings;
+    readonly [IsometricDirection.EAST]: DirectionalSpriteSettings;
+    readonly [IsometricDirection.SOUTH]: DirectionalSpriteSettings;
+    readonly [IsometricDirection.WEST]: DirectionalSpriteSettings;
+  };
+  
+  // Sprite bounding box data (computed once, reused always)
+  readonly spriteBoundingBox?: SpriteBoundingBoxData;
+}
+
+export interface SpriteConfigurationManager {
+  // Config management
+  loadConfig(spriteName: string, spriteType: 'block' | 'wall'): Promise<SpriteConfiguration | null>;
+  saveConfig(config: SpriteConfiguration): Promise<boolean>;
+  initializeDefaultConfigs(): Promise<void>;
+  
+  // Config synchronization with store
+  syncConfigToStore(spriteName: string, spriteType: 'block' | 'wall'): Promise<void>;
+  syncStoreToConfig(spriteName: string, spriteType: 'block' | 'wall'): Promise<SpriteConfiguration>;
+  
+  // Utility methods
+  createDefaultConfig(spriteName: string, spriteType: 'block' | 'wall'): SpriteConfiguration;
+  getConfigPath(spriteName: string, spriteType: 'block' | 'wall'): string;
+} 

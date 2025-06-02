@@ -170,7 +170,7 @@ export class IsometricInteractionsManager {
           battlemapActions.setWallPlacementDirection(newDirection as IsometricDirection);
           console.log(`[IsometricInteractionsManager] Rotated wall ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection} (both sprite facing and placement edge)`);
         } else {
-          battlemapActions.setSelectedSpriteDirection(newDirection as IsometricDirection);
+        battlemapActions.setSelectedSpriteDirection(newDirection as IsometricDirection);
           console.log(`[IsometricInteractionsManager] Rotated block sprite ${key === 'z' ? 'left' : 'right'}: ${currentDirection} -> ${newDirection}`);
         }
       }
@@ -283,7 +283,7 @@ export class IsometricInteractionsManager {
         // WALL MODE: Determine which edge and handle wall placement
         const wallEdge = this.determineWallEdge(mouseX, mouseY, gridX, gridY);
         const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
-        
+    
         if (isMiddleClick) {
           this.handleWallDelete(gridX, gridY, wallEdge);
           
@@ -305,30 +305,30 @@ export class IsometricInteractionsManager {
       } else {
         // BLOCK MODE: Handle center-based tile placement (existing logic)
         const snapPosition: 'above' | 'below' = isRightClick ? 'below' : 'above';
-        
+    
         // Handle middle click deletion for blocks
         if (isMiddleClick) {
-          this.handleTileDelete(gridX, gridY);
-          
+      this.handleTileDelete(gridX, gridY);
+      
           // Start middle-click drag for continuous deletion
-          this.isMiddleClickDragging = true;
-          this.dragStartPosition = { x: mouseX, y: mouseY };
-          this.lastDragGridPosition = { x: gridX, y: gridY };
-          console.log(`[IsometricInteractionsManager] Started middle-click drag deletion at (${gridX}, ${gridY})`);
-          return;
-        }
-        
+      this.isMiddleClickDragging = true;
+      this.dragStartPosition = { x: mouseX, y: mouseY };
+      this.lastDragGridPosition = { x: gridX, y: gridY };
+      console.log(`[IsometricInteractionsManager] Started middle-click drag deletion at (${gridX}, ${gridY})`);
+      return;
+    }
+    
         // Handle tile placement for blocks
-        this.handleTileEdit(gridX, gridY, snapPosition);
-        
+      this.handleTileEdit(gridX, gridY, snapPosition);
+      
         // Start drag tracking for left/right clicks
-        if (!isMiddleClick) {
-          this.isDragging = true;
-          this.dragStartPosition = { x: mouseX, y: mouseY };
-          this.lastDragGridPosition = { x: gridX, y: gridY };
-          console.log(`[IsometricInteractionsManager] Started drag painting at (${gridX}, ${gridY})`);
-        }
+      if (!isMiddleClick) {
+        this.isDragging = true;
+        this.dragStartPosition = { x: mouseX, y: mouseY };
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Started drag painting at (${gridX}, ${gridY})`);
       }
+    }
     }
   }
   
@@ -384,7 +384,7 @@ export class IsometricInteractionsManager {
     }
     return true; // Default: walls block movement
   }
-
+  
   /**
    * Handle pointer move events (mouse move for drag painting)
    */
@@ -435,31 +435,31 @@ export class IsometricInteractionsManager {
     } else {
       // BLOCK MODE: Handle block drag operations (existing logic)
       if (this.isMiddleClickDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
-        const { gridX, gridY } = gridResult;
-        
-        // Only delete if we moved to a different grid cell
-        if (this.lastDragGridPosition && 
-            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
-          
-          this.handleTileDelete(gridX, gridY);
-          this.lastDragGridPosition = { x: gridX, y: gridY };
-          console.log(`[IsometricInteractionsManager] Middle-click drag deleted tile at (${gridX}, ${gridY})`);
-        }
-      }
+      const { gridX, gridY } = gridResult;
       
-      if (this.isDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
-        const { gridX, gridY } = gridResult;
+      // Only delete if we moved to a different grid cell
+      if (this.lastDragGridPosition && 
+          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
         
-        // Only paint if we moved to a different grid cell
-        if (this.lastDragGridPosition && 
-            (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
-          
+        this.handleTileDelete(gridX, gridY);
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Middle-click drag deleted tile at (${gridX}, ${gridY})`);
+      }
+    }
+    
+      if (this.isDragging && gridResult?.inBounds && snap.controls.isEditing && !snap.controls.isLocked) {
+      const { gridX, gridY } = gridResult;
+      
+      // Only paint if we moved to a different grid cell
+      if (this.lastDragGridPosition && 
+          (this.lastDragGridPosition.x !== gridX || this.lastDragGridPosition.y !== gridY)) {
+        
           // Use default snap position for drag
           const snapPosition: 'above' | 'below' = 'above';
-          
-          this.handleTileEdit(gridX, gridY, snapPosition);
-          this.lastDragGridPosition = { x: gridX, y: gridY };
-          console.log(`[IsometricInteractionsManager] Drag painted tile at (${gridX}, ${gridY})`);
+        
+        this.handleTileEdit(gridX, gridY, snapPosition);
+        this.lastDragGridPosition = { x: gridX, y: gridY };
+        console.log(`[IsometricInteractionsManager] Drag painted tile at (${gridX}, ${gridY})`);
         }
       }
     }
@@ -592,8 +592,8 @@ export class IsometricInteractionsManager {
     // Delete tile at the active Z level
     battlemapActions.removeIsometricTile(gridX, gridY, isometricEditor.selectedZLevel);
     console.log(`[IsometricInteractionsManager] Middle-click deleted tile at (${gridX}, ${gridY}, Z:${isometricEditor.selectedZLevel})`);
-  }
-  
+      }
+      
   /**
    * Get walkable state based on sprite name
    */

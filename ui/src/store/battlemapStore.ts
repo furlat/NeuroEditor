@@ -52,12 +52,95 @@ export interface IsometricEditorState {
     useAutoComputed: boolean;
     // User provided manual bias (shown in menu, initially set to auto-computed)
     manualVerticalBias: number;
+    // NEW: Per-direction configuration support
+    useSharedSettings?: boolean; // Whether to use shared settings for all directions
+    directionalSettings?: {
+      [IsometricDirection.NORTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.EAST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.SOUTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.WEST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+    };
   }>;
   // NEW: Wall-specific settings
   wallMode: boolean; // Toggle between block and wall editing modes
   selectedWallType: 'brick' | 'stone' | 'wood' | 'custom';
   wallPlacementDirection: IsometricDirection; // Which edge to place wall on
   wallSpriteDirection: IsometricDirection; // Which direction the wall sprite faces
+  // NEW: Remember last selected sprites for each mode
+  lastSelectedBlockSprite: string | null; // Last selected sprite in block mode
+  lastSelectedWallSprite: string | null; // Last selected sprite in wall mode
   // Wall positioning settings (SAME SYSTEM AS BLOCKS - wall sprites are just positioned relative to edges instead of centers)
   wallPositioningSettings: Record<string, {
     // 4-directional invisible margins (same as blocks)
@@ -71,6 +154,146 @@ export interface IsometricEditorState {
     useAutoComputed: boolean;
     // User provided manual bias (same as blocks)
     manualVerticalBias: number;
+    // Manual horizontal offset for fine-tuning wall X position
+    manualHorizontalOffset: number;
+    // Manual diagonal offsets along diamond border axes
+    manualDiagonalNorthEastOffset: number; // Along NE-SW diagonal axis
+    manualDiagonalNorthWestOffset: number; // Along NW-SE diagonal axis
+    // Wall-relative positioning offsets (relative to wall's edge and orientation)
+    relativeAlongEdgeOffset: number;       // Parallel to wall's edge (left/right along edge)
+    relativeTowardCenterOffset: number;    // Perpendicular to edge (into/out of diamond)
+    relativeDiagonalAOffset: number;       // First 45° diagonal relative to wall's edge
+    relativeDiagonalBOffset: number;       // Second 45° diagonal relative to wall's edge
+    // NEW: Sprite-specific positioning behavior flags
+    useADivisionForNorthEast: boolean;     // Whether North/East walls divide A diagonal by 2
+    useSpriteTrimmingForWalls: boolean;    // Whether to trim transparent pixels and adjust anchor to bounding box
+    // NEW: Per-direction configuration support (SAME AS BLOCKS)
+    useSharedSettings?: boolean; // Whether to use shared settings for all directions
+    directionalSettings?: {
+      [IsometricDirection.NORTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        manualHorizontalOffset: number;
+        manualDiagonalNorthEastOffset: number;
+        manualDiagonalNorthWestOffset: number;
+        relativeAlongEdgeOffset: number;
+        relativeTowardCenterOffset: number;
+        relativeDiagonalAOffset: number;
+        relativeDiagonalBOffset: number;
+        useADivisionForNorthEast: boolean;
+        useSpriteTrimmingForWalls: boolean;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.EAST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        manualHorizontalOffset: number;
+        manualDiagonalNorthEastOffset: number;
+        manualDiagonalNorthWestOffset: number;
+        relativeAlongEdgeOffset: number;
+        relativeTowardCenterOffset: number;
+        relativeDiagonalAOffset: number;
+        relativeDiagonalBOffset: number;
+        useADivisionForNorthEast: boolean;
+        useSpriteTrimmingForWalls: boolean;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.SOUTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        manualHorizontalOffset: number;
+        manualDiagonalNorthEastOffset: number;
+        manualDiagonalNorthWestOffset: number;
+        relativeAlongEdgeOffset: number;
+        relativeTowardCenterOffset: number;
+        relativeDiagonalAOffset: number;
+        relativeDiagonalBOffset: number;
+        useADivisionForNorthEast: boolean;
+        useSpriteTrimmingForWalls: boolean;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.WEST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        manualHorizontalOffset: number;
+        manualDiagonalNorthEastOffset: number;
+        manualDiagonalNorthWestOffset: number;
+        relativeAlongEdgeOffset: number;
+        relativeTowardCenterOffset: number;
+        relativeDiagonalAOffset: number;
+        relativeDiagonalBOffset: number;
+        useADivisionForNorthEast: boolean;
+        useSpriteTrimmingForWalls: boolean;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+    };
+    // NEW: Stored bounding box relationship (computed once, reused always)
+    spriteBoundingBox?: {
+      originalWidth: number;
+      originalHeight: number; 
+      boundingX: number;
+      boundingY: number;
+      boundingWidth: number;
+      boundingHeight: number;
+      anchorOffsetX: number;  // Normalized anchor offset (0-1)
+      anchorOffsetY: number;  // Normalized anchor offset (0-1)
+    };
   }>;
 }
 
@@ -198,6 +421,8 @@ const battlemapStore = proxy<BattlemapStoreState>({
       wallPlacementDirection: IsometricDirection.SOUTH,
       wallSpriteDirection: IsometricDirection.SOUTH,
       wallPositioningSettings: {},
+      lastSelectedBlockSprite: null,
+      lastSelectedWallSprite: null,
     },
   },
   loading: false,
@@ -505,6 +730,17 @@ const battlemapActions = {
   
   // Enhanced isometric editor actions
   setSelectedSprite: (spriteName: string | null) => {
+    const wasWallMode = battlemapStore.controls.isometricEditor.wallMode;
+    
+    // Remember the last selected sprite for the current mode
+    if (spriteName) {
+      if (wasWallMode) {
+        battlemapStore.controls.isometricEditor.lastSelectedWallSprite = spriteName;
+      } else {
+        battlemapStore.controls.isometricEditor.lastSelectedBlockSprite = spriteName;
+      }
+    }
+    
     battlemapStore.controls.isometricEditor.selectedSpriteName = spriteName;
   },
   
@@ -530,16 +766,187 @@ const battlemapActions = {
   
   // EXACT USER SPECIFICATION: Per-sprite-type positioning settings
   setSpriteTypeSettings: (spriteName: string, settings: {
+    // 4-directional invisible margins
     invisibleMarginUp: number;
     invisibleMarginDown: number;
     invisibleMarginLeft: number;
     invisibleMarginRight: number;
+    // Auto-computed vertical bias (from width/2 and normalized height formula)
     autoComputedVerticalBias: number;
+    // Whether to use auto-computed or manual
     useAutoComputed: boolean;
+    // User provided manual bias (shown in menu, initially set to auto-computed)
     manualVerticalBias: number;
+    // NEW: Per-direction configuration support
+    useSharedSettings?: boolean; // Whether to use shared settings for all directions
+    directionalSettings?: {
+      [IsometricDirection.NORTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.EAST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.SOUTH]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+      [IsometricDirection.WEST]?: {
+        invisibleMarginUp: number;
+        invisibleMarginDown: number;
+        invisibleMarginLeft: number;
+        invisibleMarginRight: number;
+        autoComputedVerticalBias: number;
+        useAutoComputed: boolean;
+        manualVerticalBias: number;
+        spriteBoundingBox?: {
+          originalWidth: number;
+          originalHeight: number; 
+          boundingX: number;
+          boundingY: number;
+          boundingWidth: number;
+          boundingHeight: number;
+          anchorOffsetX: number;
+          anchorOffsetY: number;
+        };
+      };
+    };
   }) => {
     console.log(`[battlemapStore] Setting sprite type settings for ${spriteName}:`, settings);
-    battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = settings;
+    
+    // Initialize or update sprite settings with backward compatibility
+    if (!battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName]) {
+      // FIXED: When creating new settings, initialize BOTH shared AND all directional settings
+      const baseSettings = {
+        invisibleMarginUp: settings.invisibleMarginUp,
+        invisibleMarginDown: settings.invisibleMarginDown,
+        invisibleMarginLeft: settings.invisibleMarginLeft,
+        invisibleMarginRight: settings.invisibleMarginRight,
+        autoComputedVerticalBias: settings.autoComputedVerticalBias,
+        useAutoComputed: settings.useAutoComputed,
+        manualVerticalBias: settings.manualVerticalBias,
+      };
+      
+      battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = {
+        ...settings,
+        useSharedSettings: settings.useSharedSettings ?? true, // Default to shared
+        // ALWAYS populate directional settings with DIFFERENT values so user can see the difference
+        directionalSettings: settings.directionalSettings || {
+          [IsometricDirection.NORTH]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.EAST]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.SOUTH]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.WEST]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          }
+        }
+      };
+      
+      console.log(`[battlemapStore] Initialized ${spriteName} with BOTH shared and directional settings`);
+    } else {
+      // Update existing settings
+      const existingSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+      
+      // Update the settings
+      Object.assign(existingSettings, settings);
+      
+      // FIXED: Ensure directional settings exist even when updating
+      if (!existingSettings.directionalSettings) {
+        const baseSettings = {
+          invisibleMarginUp: settings.invisibleMarginUp,
+          invisibleMarginDown: settings.invisibleMarginDown,
+          invisibleMarginLeft: settings.invisibleMarginLeft,
+          invisibleMarginRight: settings.invisibleMarginRight,
+          autoComputedVerticalBias: settings.autoComputedVerticalBias,
+          useAutoComputed: settings.useAutoComputed,
+          manualVerticalBias: settings.manualVerticalBias,
+        };
+        
+        existingSettings.directionalSettings = {
+          [IsometricDirection.NORTH]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.EAST]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.SOUTH]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          },
+          [IsometricDirection.WEST]: { 
+            ...baseSettings, 
+            invisibleMarginUp: 0, invisibleMarginDown: 0, 
+            invisibleMarginLeft: 0, invisibleMarginRight: 0 
+          }
+        };
+        
+        console.log(`[battlemapStore] Added missing directional settings for ${spriteName}`);
+      }
+    }
     
     // Force immediate re-render by triggering a dummy change to ensure reactivity
     const currentOffset = battlemapStore.view.offset;
@@ -551,8 +958,99 @@ const battlemapActions = {
     }, 0);
   },
   
-  getSpriteTypeSettings: (spriteName: string) => {
-    return battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] || null;
+  getSpriteTypeSettings: (spriteName: string, direction?: IsometricDirection) => {
+    const spriteSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+    if (!spriteSettings) return null;
+    
+    // Check if using per-direction settings and direction is specified
+    if (!spriteSettings.useSharedSettings && direction !== undefined && spriteSettings.directionalSettings?.[direction]) {
+      return spriteSettings.directionalSettings[direction];
+    }
+    
+    // Return shared settings (default)
+    return {
+      invisibleMarginUp: spriteSettings.invisibleMarginUp,
+      invisibleMarginDown: spriteSettings.invisibleMarginDown,
+      invisibleMarginLeft: spriteSettings.invisibleMarginLeft,
+      invisibleMarginRight: spriteSettings.invisibleMarginRight,
+      autoComputedVerticalBias: spriteSettings.autoComputedVerticalBias,
+      useAutoComputed: spriteSettings.useAutoComputed,
+      manualVerticalBias: spriteSettings.manualVerticalBias,
+    };
+  },
+
+  // NEW: Functions to manage shared vs per-direction settings
+  setSpriteUseSharedSettings: (spriteName: string, useShared: boolean) => {
+    console.log(`[battlemapStore] setSpriteUseSharedSettings called for ${spriteName} with useShared=${useShared}`);
+    
+    let existingSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+    
+    // If no settings exist, create default ones first
+    if (!existingSettings) {
+      console.log(`[battlemapStore] No existing settings for ${spriteName}, creating defaults`);
+      existingSettings = {
+        invisibleMarginUp: 8,
+        invisibleMarginDown: 8,
+        invisibleMarginLeft: 8,
+        invisibleMarginRight: 8,
+        autoComputedVerticalBias: 36,
+        useAutoComputed: true,
+        manualVerticalBias: 36,
+        useSharedSettings: true
+      };
+      battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName] = existingSettings;
+    }
+    
+    console.log(`[battlemapStore] Setting useSharedSettings from ${existingSettings.useSharedSettings} to ${useShared}`);
+    existingSettings.useSharedSettings = useShared;
+    
+    // REMOVED: Don't copy shared settings to directional settings
+    // The directional settings should come from saved JSON config files
+    // If they don't exist, they'll be auto-calculated when first accessed
+    
+    console.log(`[battlemapStore] Final settings for ${spriteName}:`, existingSettings);
+    console.log(`[battlemapStore] Set ${spriteName} to use ${useShared ? 'shared' : 'per-direction'} settings`);
+    
+    // Force re-render
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    setTimeout(() => {
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+
+  getSpriteUseSharedSettings: (spriteName: string): boolean => {
+    const spriteSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+    return spriteSettings?.useSharedSettings ?? true; // Default to shared
+  },
+
+  // NEW: Set direction-specific settings
+  setSpriteDirectionalSettings: (spriteName: string, direction: IsometricDirection, settings: {
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    autoComputedVerticalBias: number;
+    useAutoComputed: boolean;
+    manualVerticalBias: number;
+  }) => {
+    const existingSettings = battlemapStore.controls.isometricEditor.spriteTypeSettings[spriteName];
+    if (existingSettings) {
+      if (!existingSettings.directionalSettings) {
+        existingSettings.directionalSettings = {};
+      }
+      existingSettings.directionalSettings[direction] = settings;
+      console.log(`[battlemapStore] Set direction-specific settings for ${spriteName} direction ${direction}`);
+      
+      // Force re-render
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      setTimeout(() => {
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
+    }
   },
   
   // EXACT USER SPECIFICATION: Calculate positioning using 4-directional margins and width/2 formula
@@ -867,15 +1365,34 @@ const battlemapActions = {
 
   // NEW: Wall management actions
   addWall: (wall: WallSummary) => {
-    const wallKey = `${wall.position[0]},${wall.position[1]},${wall.z_level},${wall.wall_direction}`;
-    battlemapStore.grid.walls[wallKey] = wall;
+    // Check for existing identical wall (same sprite, position, z_level, wall_direction, sprite_direction)
+    const existingWallKey = Object.keys(battlemapStore.grid.walls).find(wallKey => {
+      const existingWall = battlemapStore.grid.walls[wallKey];
+      return (
+        existingWall.sprite_name === wall.sprite_name &&
+        existingWall.position[0] === wall.position[0] &&
+        existingWall.position[1] === wall.position[1] &&
+        existingWall.z_level === wall.z_level &&
+        existingWall.wall_direction === wall.wall_direction &&
+        existingWall.sprite_direction === wall.sprite_direction
+      );
+    });
+
+    if (existingWallKey) {
+      // Overwrite existing identical wall instead of creating duplicate
+      battlemapStore.grid.walls[existingWallKey] = wall;
+      console.log('[battlemapStore] Overwriting identical wall:', wall, '- FORCING RENDER');
+    } else {
+      // Use the wall's UUID as the key to allow multiple different walls per edge
+      const wallKey = wall.uuid;
+      battlemapStore.grid.walls[wallKey] = wall;
+      console.log('[battlemapStore] Added new wall:', wall, '- FORCING RENDER');
+    }
     
     // Update max Z level if necessary
     if (wall.z_level > battlemapStore.grid.maxZLevel) {
       battlemapStore.grid.maxZLevel = wall.z_level;
     }
-    
-    console.log('[battlemapStore] Added wall:', wall, '- FORCING RENDER');
     
     // Force immediate re-render
     const currentOffset = battlemapStore.view.offset;
@@ -888,28 +1405,43 @@ const battlemapActions = {
   },
 
   removeWall: (x: number, y: number, z: number, direction: IsometricDirection) => {
-    const wallKey = `${x},${y},${z},${direction}`;
-    if (battlemapStore.grid.walls[wallKey]) {
+    // Remove ALL walls at the specified edge (not just one)
+    const wallsToRemove: string[] = [];
+    
+    // Find all walls at this edge
+    Object.keys(battlemapStore.grid.walls).forEach(wallKey => {
+      const wall = battlemapStore.grid.walls[wallKey];
+      if (wall.position[0] === x && 
+          wall.position[1] === y && 
+          wall.z_level === z && 
+          wall.wall_direction === direction) {
+        wallsToRemove.push(wallKey);
+      }
+    });
+    
+    // Remove all found walls
+    wallsToRemove.forEach(wallKey => {
       delete battlemapStore.grid.walls[wallKey];
-      console.log('[battlemapStore] Removed wall at:', [x, y, z, direction], '- FORCING RENDER');
-      
-      // Force immediate re-render
-      const currentOffset = battlemapStore.view.offset;
-      battlemapStore.view.offset = { ...currentOffset };
-      
-      setTimeout(() => {
-        if ((window as any).__forceWallRender) (window as any).__forceWallRender();
-        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
-      }, 0);
-    }
+    });
+    
+    console.log(`[battlemapStore] Removed ${wallsToRemove.length} wall(s) at (${x}, ${y}, Z:${z}, Edge:${direction}) - FORCING RENDER`);
+    
+    // Force immediate re-render
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    setTimeout(() => {
+      if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
   },
 
-  updateWall: (x: number, y: number, z: number, direction: IsometricDirection, updates: Partial<WallSummary>) => {
-    const wallKey = `${x},${y},${z},${direction}`;
-    const existingWall = battlemapStore.grid.walls[wallKey];
+  updateWall: (wallUuid: string, updates: Partial<WallSummary>) => {
+    // Update wall by UUID instead of position+direction
+    const existingWall = battlemapStore.grid.walls[wallUuid];
     if (existingWall) {
-      battlemapStore.grid.walls[wallKey] = { ...existingWall, ...updates };
-      console.log('[battlemapStore] Updated wall at:', [x, y, z, direction], '- FORCING RENDER');
+      battlemapStore.grid.walls[wallUuid] = { ...existingWall, ...updates };
+      console.log('[battlemapStore] Updated wall:', wallUuid, '- FORCING RENDER');
       
       // Force immediate re-render
       const currentOffset = battlemapStore.view.offset;
@@ -924,13 +1456,24 @@ const battlemapActions = {
 
   getWallsAtPosition: (x: number, y: number, z: number): WallSummary[] => {
     const walls: WallSummary[] = [];
-    for (const direction of [IsometricDirection.NORTH, IsometricDirection.EAST, IsometricDirection.SOUTH, IsometricDirection.WEST]) {
-      const wallKey = `${x},${y},${z},${direction}`;
-      const wall = battlemapStore.grid.walls[wallKey];
-      if (wall) {
+    Object.values(battlemapStore.grid.walls).forEach(wall => {
+      if (wall.position[0] === x && wall.position[1] === y && wall.z_level === z) {
         walls.push(wall);
       }
-    }
+    });
+    return walls;
+  },
+
+  getWallsAtEdge: (x: number, y: number, z: number, direction: IsometricDirection): WallSummary[] => {
+    const walls: WallSummary[] = [];
+    Object.values(battlemapStore.grid.walls).forEach(wall => {
+      if (wall.position[0] === x && 
+          wall.position[1] === y && 
+          wall.z_level === z && 
+          wall.wall_direction === direction) {
+        walls.push(wall);
+      }
+    });
     return walls;
   },
 
@@ -941,7 +1484,46 @@ const battlemapActions = {
 
   // NEW: Wall editor controls
   setWallMode: (enabled: boolean) => {
+    const wasWallMode = battlemapStore.controls.isometricEditor.wallMode;
+    const currentSprite = battlemapStore.controls.isometricEditor.selectedSpriteName;
+    
+    // Remember the current sprite for the mode we're leaving
+    if (currentSprite) {
+      if (wasWallMode) {
+        battlemapStore.controls.isometricEditor.lastSelectedWallSprite = currentSprite;
+      } else {
+        battlemapStore.controls.isometricEditor.lastSelectedBlockSprite = currentSprite;
+      }
+    }
+    
+    // Switch to the new mode
     battlemapStore.controls.isometricEditor.wallMode = enabled;
+    
+    // Auto-select the remembered sprite for the new mode
+    if (enabled) {
+      // Switching TO wall mode - select last wall sprite
+      const lastWallSprite = battlemapStore.controls.isometricEditor.lastSelectedWallSprite;
+      if (lastWallSprite) {
+        battlemapStore.controls.isometricEditor.selectedSpriteName = lastWallSprite;
+        console.log(`[battlemapStore] Wall mode enabled - auto-selected last wall sprite: ${lastWallSprite}`);
+      } else {
+        // No previous wall sprite - clear selection so user can pick one
+        battlemapStore.controls.isometricEditor.selectedSpriteName = null;
+        console.log(`[battlemapStore] Wall mode enabled - no previous wall sprite remembered`);
+      }
+    } else {
+      // Switching TO block mode - select last block sprite
+      const lastBlockSprite = battlemapStore.controls.isometricEditor.lastSelectedBlockSprite;
+      if (lastBlockSprite) {
+        battlemapStore.controls.isometricEditor.selectedSpriteName = lastBlockSprite;
+        console.log(`[battlemapStore] Block mode enabled - auto-selected last block sprite: ${lastBlockSprite}`);
+      } else {
+        // No previous block sprite - clear selection so user can pick one
+        battlemapStore.controls.isometricEditor.selectedSpriteName = null;
+        console.log(`[battlemapStore] Block mode enabled - no previous block sprite remembered`);
+      }
+    }
+    
     console.log(`[battlemapStore] Wall mode ${enabled ? 'enabled' : 'disabled'}`);
   },
 
@@ -971,13 +1553,71 @@ const battlemapActions = {
     autoComputedVerticalBias: number;
     useAutoComputed: boolean;
     manualVerticalBias: number;
+    manualHorizontalOffset: number;
+    manualDiagonalNorthEastOffset: number;
+    manualDiagonalNorthWestOffset: number;
+    relativeAlongEdgeOffset: number;
+    relativeTowardCenterOffset: number;
+    relativeDiagonalAOffset: number;
+    relativeDiagonalBOffset: number;
+    useADivisionForNorthEast: boolean;
+    useSpriteTrimmingForWalls: boolean;
+    // NEW: Stored bounding box relationship (computed once, reused always)
+    spriteBoundingBox?: {
+      originalWidth: number;
+      originalHeight: number; 
+      boundingX: number;
+      boundingY: number;
+      boundingWidth: number;
+      boundingHeight: number;
+      anchorOffsetX: number;
+      anchorOffsetY: number;
+    };
   }) => {
-    battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] = settings;
-    console.log(`[battlemapActions] Set wall positioning settings for ${spriteName}:`, settings);
+    // FIXED: Preserve existing useSharedSettings and directionalSettings when updating positioning
+    const existingSettings = battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName];
+    
+    // Merge new settings with existing settings to preserve useSharedSettings and directionalSettings
+    const updatedSettings = {
+      ...settings,
+      // Preserve the per-direction configuration fields if they exist
+      useSharedSettings: existingSettings?.useSharedSettings ?? true, // Default to shared if not set
+      directionalSettings: existingSettings?.directionalSettings // Preserve existing directional settings
+    };
+    
+    battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] = updatedSettings;
+    console.log(`[battlemapActions] Set wall positioning settings for ${spriteName}:`, updatedSettings);
   },
 
-  getWallPositioningSettings: (spriteName: string) => {
-    return battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] || null;
+  getWallPositioningSettings: (spriteName: string, direction?: IsometricDirection) => {
+    const wallSettings = battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName];
+    if (!wallSettings) return null;
+    
+    // Check if using per-direction settings and direction is specified
+    if (!wallSettings.useSharedSettings && direction !== undefined && wallSettings.directionalSettings?.[direction]) {
+      return wallSettings.directionalSettings[direction];
+    }
+    
+    // Return shared settings (default)
+    return {
+      invisibleMarginUp: wallSettings.invisibleMarginUp,
+      invisibleMarginDown: wallSettings.invisibleMarginDown,
+      invisibleMarginLeft: wallSettings.invisibleMarginLeft,
+      invisibleMarginRight: wallSettings.invisibleMarginRight,
+      autoComputedVerticalBias: wallSettings.autoComputedVerticalBias,
+      useAutoComputed: wallSettings.useAutoComputed,
+      manualVerticalBias: wallSettings.manualVerticalBias,
+      manualHorizontalOffset: wallSettings.manualHorizontalOffset,
+      manualDiagonalNorthEastOffset: wallSettings.manualDiagonalNorthEastOffset,
+      manualDiagonalNorthWestOffset: wallSettings.manualDiagonalNorthWestOffset,
+      relativeAlongEdgeOffset: wallSettings.relativeAlongEdgeOffset,
+      relativeTowardCenterOffset: wallSettings.relativeTowardCenterOffset,
+      relativeDiagonalAOffset: wallSettings.relativeDiagonalAOffset,
+      relativeDiagonalBOffset: wallSettings.relativeDiagonalBOffset,
+      useADivisionForNorthEast: wallSettings.useADivisionForNorthEast,
+      useSpriteTrimmingForWalls: wallSettings.useSpriteTrimmingForWalls,
+      spriteBoundingBox: wallSettings.spriteBoundingBox,
+    };
   },
 
   // Calculate wall positioning (SIMPLE MANUAL DEFAULTS - no auto calculation for now)
@@ -999,8 +1639,164 @@ const battlemapActions = {
       invisibleMarginRight: marginRight,
       autoComputedVerticalBias: 0, // Simple default, not actually computed
       useAutoComputed: false, // Default to manual mode
-      manualVerticalBias: 0 // Default to 0 offset for clear understanding
+      manualVerticalBias: 0, // Default to 0 offset for clear understanding
+      manualHorizontalOffset: 0, // Default to 0 horizontal offset for clear understanding
+      manualDiagonalNorthEastOffset: 0,
+      manualDiagonalNorthWestOffset: 0,
+      relativeAlongEdgeOffset: 0,
+      relativeTowardCenterOffset: 0,
+      relativeDiagonalAOffset: 8, // PERFECT: Default to 8 for universal positioning
+      relativeDiagonalBOffset: 3, // PERFECT: Default to 3 for universal positioning
+      useADivisionForNorthEast: true, // NEW: Default to true (current behavior with division)
+      useSpriteTrimmingForWalls: false, // NEW: Default to false (current behavior without trimming)
     };
+  },
+
+  // NEW: Wall-specific functions to manage shared vs per-direction settings (SAME AS BLOCKS)
+  setWallUseSharedSettings: (spriteName: string, useShared: boolean) => {
+    console.log(`[battlemapStore] setWallUseSharedSettings called for ${spriteName} with useShared=${useShared}`);
+    
+    let existingSettings = battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName];
+    
+    // If no settings exist, create default ones first
+    if (!existingSettings) {
+      console.log(`[battlemapStore] No existing wall settings for ${spriteName}, creating defaults`);
+      existingSettings = {
+        invisibleMarginUp: 8,
+        invisibleMarginDown: 8,
+        invisibleMarginLeft: 8,
+        invisibleMarginRight: 8,
+        autoComputedVerticalBias: 0,
+        useAutoComputed: false,
+        manualVerticalBias: 0,
+        manualHorizontalOffset: 0,
+        manualDiagonalNorthEastOffset: 0,
+        manualDiagonalNorthWestOffset: 0,
+        relativeAlongEdgeOffset: 0,
+        relativeTowardCenterOffset: 0,
+        relativeDiagonalAOffset: 8,
+        relativeDiagonalBOffset: 3,
+        useADivisionForNorthEast: true,
+        useSpriteTrimmingForWalls: false,
+        useSharedSettings: true
+      };
+      battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] = existingSettings;
+    }
+    
+    console.log(`[battlemapStore] Setting wall useSharedSettings from ${existingSettings.useSharedSettings} to ${useShared}`);
+    
+    // FIXED: Use full object assignment to ensure Valtio reactivity
+    const updatedSettings = {
+      ...existingSettings,
+      useSharedSettings: useShared
+    };
+    
+    // Also ensure directional settings exist with different default values so user can see the difference
+    if (!updatedSettings.directionalSettings) {
+      const baseSettings = {
+        invisibleMarginUp: updatedSettings.invisibleMarginUp,
+        invisibleMarginDown: updatedSettings.invisibleMarginDown,
+        invisibleMarginLeft: updatedSettings.invisibleMarginLeft,
+        invisibleMarginRight: updatedSettings.invisibleMarginRight,
+        autoComputedVerticalBias: updatedSettings.autoComputedVerticalBias,
+        useAutoComputed: updatedSettings.useAutoComputed,
+        manualVerticalBias: updatedSettings.manualVerticalBias,
+        manualHorizontalOffset: updatedSettings.manualHorizontalOffset,
+        manualDiagonalNorthEastOffset: updatedSettings.manualDiagonalNorthEastOffset,
+        manualDiagonalNorthWestOffset: updatedSettings.manualDiagonalNorthWestOffset,
+        relativeAlongEdgeOffset: updatedSettings.relativeAlongEdgeOffset,
+        relativeTowardCenterOffset: updatedSettings.relativeTowardCenterOffset,
+        relativeDiagonalAOffset: updatedSettings.relativeDiagonalAOffset,
+        relativeDiagonalBOffset: updatedSettings.relativeDiagonalBOffset,
+        useADivisionForNorthEast: updatedSettings.useADivisionForNorthEast,
+        useSpriteTrimmingForWalls: updatedSettings.useSpriteTrimmingForWalls,
+      };
+      
+      updatedSettings.directionalSettings = {
+        [IsometricDirection.NORTH]: { 
+          ...baseSettings, 
+          invisibleMarginUp: 0, invisibleMarginDown: 0, 
+          invisibleMarginLeft: 0, invisibleMarginRight: 0,
+          relativeDiagonalAOffset: 0, relativeDiagonalBOffset: 0
+        },
+        [IsometricDirection.EAST]: { 
+          ...baseSettings, 
+          invisibleMarginUp: 0, invisibleMarginDown: 0, 
+          invisibleMarginLeft: 0, invisibleMarginRight: 0,
+          relativeDiagonalAOffset: 0, relativeDiagonalBOffset: 0
+        },
+        [IsometricDirection.SOUTH]: { 
+          ...baseSettings, 
+          invisibleMarginUp: 0, invisibleMarginDown: 0, 
+          invisibleMarginLeft: 0, invisibleMarginRight: 0,
+          relativeDiagonalAOffset: 0, relativeDiagonalBOffset: 0
+        },
+        [IsometricDirection.WEST]: { 
+          ...baseSettings, 
+          invisibleMarginUp: 0, invisibleMarginDown: 0, 
+          invisibleMarginLeft: 0, invisibleMarginRight: 0,
+          relativeDiagonalAOffset: 0, relativeDiagonalBOffset: 0
+        }
+      };
+    }
+    
+    // FIXED: Assign the entire updated object to trigger Valtio reactivity properly
+    battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName] = updatedSettings;
+    
+    console.log(`[battlemapStore] Final wall settings for ${spriteName}:`, updatedSettings);
+    console.log(`[battlemapStore] Set ${spriteName} wall to use ${useShared ? 'shared' : 'per-direction'} settings`);
+    
+    // Force re-render
+    const currentOffset = battlemapStore.view.offset;
+    battlemapStore.view.offset = { ...currentOffset };
+    
+    setTimeout(() => {
+      if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+      if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+    }, 0);
+  },
+
+  getWallUseSharedSettings: (spriteName: string): boolean => {
+    const wallSettings = battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName];
+    return wallSettings?.useSharedSettings ?? true; // Default to shared
+  },
+
+  // NEW: Set direction-specific wall settings
+  setWallDirectionalSettings: (spriteName: string, direction: IsometricDirection, settings: {
+    invisibleMarginUp: number;
+    invisibleMarginDown: number;
+    invisibleMarginLeft: number;
+    invisibleMarginRight: number;
+    autoComputedVerticalBias: number;
+    useAutoComputed: boolean;
+    manualVerticalBias: number;
+    manualHorizontalOffset: number;
+    manualDiagonalNorthEastOffset: number;
+    manualDiagonalNorthWestOffset: number;
+    relativeAlongEdgeOffset: number;
+    relativeTowardCenterOffset: number;
+    relativeDiagonalAOffset: number;
+    relativeDiagonalBOffset: number;
+    useADivisionForNorthEast: boolean;
+    useSpriteTrimmingForWalls: boolean;
+  }) => {
+    const existingSettings = battlemapStore.controls.isometricEditor.wallPositioningSettings[spriteName];
+    if (existingSettings) {
+      if (!existingSettings.directionalSettings) {
+        existingSettings.directionalSettings = {};
+      }
+      existingSettings.directionalSettings[direction] = settings;
+      console.log(`[battlemapStore] Set direction-specific wall settings for ${spriteName} direction ${direction}`);
+      
+      // Force re-render
+      const currentOffset = battlemapStore.view.offset;
+      battlemapStore.view.offset = { ...currentOffset };
+      
+      setTimeout(() => {
+        if ((window as any).__forceWallRender) (window as any).__forceWallRender();
+        if ((window as any).__forceTileRender) (window as any).__forceTileRender();
+      }, 0);
+    }
   },
 };
 

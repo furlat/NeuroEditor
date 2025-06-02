@@ -1,4 +1,5 @@
-import { Graphics, Sprite, Container } from 'pixi.js';
+import { Graphics, Sprite, Container, Texture } from 'pixi.js';
+import { getCanvasBoundingBox } from 'pixi.js';
 import { battlemapStore, battlemapActions, Z_LAYER_CONFIG, LayerVisibilityMode } from '../../store';
 import { TileSummary, WallSummary } from '../../types/battlemap_types';
 import { AbstractRenderer } from './BaseRenderer';
@@ -140,8 +141,8 @@ export class IsometricTileRenderer extends AbstractRenderer {
       const hasWallChanges = this.hasWallsChanged(battlemapStore.grid.walls);
       
       if (hasTileChanges) {
-        this.tilesRef = {...battlemapStore.grid.tiles};
-        this.tilesNeedUpdate = true;
+          this.tilesRef = {...battlemapStore.grid.tiles};
+          this.tilesNeedUpdate = true;
       }
       
       if (hasWallChanges) {
@@ -282,20 +283,50 @@ export class IsometricTileRenderer extends AbstractRenderer {
    * Filter walls based on shadow/invisible mode - same logic as tiles
    */
   private getVisibleWalls(): WallSummary[] {
-    const allWalls = Object.values(this.wallsRef);
+    const visibleWalls: WallSummary[] = [];
     const snap = battlemapStore;
     
-    switch (snap.view.layerVisibilityMode) {
-      case LayerVisibilityMode.SHADOW:
-      case LayerVisibilityMode.NORMAL:
-        // SHADOW and NORMAL modes: Show ALL walls
-        return allWalls;
-      case LayerVisibilityMode.INVISIBLE:
-        // INVISIBLE mode: Show ONLY active layer walls
-        return allWalls.filter(wall => wall.z_level === snap.view.activeZLayer);
-      default:
-        return allWalls;
-    }
+    // Get all walls, then filter based on grid layer visibility
+    Object.values(this.wallsRef).forEach(wall => {
+      const isLayerVisible = snap.view.gridLayerVisibility[wall.z_level] !== false;
+      
+      if (isLayerVisible && wall.visible) {
+        // Filter by layer visibility mode
+        if (snap.view.layerVisibilityMode === LayerVisibilityMode.INVISIBLE) {
+          // Only show walls on the active layer
+          if (wall.z_level === snap.view.activeZLayer) {
+            visibleWalls.push(wall);
+          }
+        } else {
+          // Show all walls (NORMAL or SHADOW mode)
+          visibleWalls.push(wall);
+        }
+      }
+    });
+    
+    // Sort walls by z_level, then by creation order (UUID timestamp) for consistent stacking
+    return visibleWalls.sort((a, b) => {
+      // First sort by Z level
+      if (a.z_level !== b.z_level) {
+        return a.z_level - b.z_level;
+      }
+      
+      // Then by position for consistency
+      if (a.position[0] !== b.position[0]) {
+        return a.position[0] - b.position[0];
+      }
+      if (a.position[1] !== b.position[1]) {
+        return a.position[1] - b.position[1];
+      }
+      
+      // Then by wall direction for consistent ordering
+      if (a.wall_direction !== b.wall_direction) {
+        return a.wall_direction - b.wall_direction;
+      }
+      
+      // Finally by UUID (which includes timestamp) for creation order
+      return a.uuid.localeCompare(b.uuid);
+    });
   }
 
   /**
@@ -335,7 +366,6 @@ export class IsometricTileRenderer extends AbstractRenderer {
 
   /**
    * Sort sprites by depth for proper isometric rendering
-   * UNUSED - sorting is now done directly in renderSpritesWithTextures
    */
   private sortSpritesByDepth(sprites: RenderableSprite[]): RenderableSprite[] {
     return sprites.sort((a, b) => {
@@ -350,27 +380,21 @@ export class IsometricTileRenderer extends AbstractRenderer {
       }
       
       if (a.position[0] !== b.position[0]) {
-        return a.position[0] - b.position[0];
+      return a.position[0] - b.position[0];
       }
       
-      // Simple depth sorting for RenderableSprite - wall edge sorting is done elsewhere
-      if (a.type === 'wall' && b.type === 'wall' && a.wall_direction && b.wall_direction) {
-        // Basic wall edge sorting
-        const getWallDepthPriority = (wallDirection: IsometricDirection): number => {
-          switch (wallDirection) {
-            case IsometricDirection.NORTH: return 0;
-            case IsometricDirection.WEST:  return 1;
-            case IsometricDirection.EAST:  return 2;
-            case IsometricDirection.SOUTH: return 3;
-            default: return 2;
-          }
-        };
-        return getWallDepthPriority(a.wall_direction) - getWallDepthPriority(b.wall_direction);
-      }
-      
-      // If position is the same, walls render after tiles
+      // If position is the same, walls render after tiles (walls on top)
       if (a.type !== b.type) {
         return a.type === 'tile' ? -1 : 1;
+      }
+      
+      // For walls: basic edge sorting (user will handle detailed positioning)
+      if (a.type === 'wall' && b.type === 'wall') {
+        const wallA = a as unknown as WallSummary;
+        const wallB = b as unknown as WallSummary;
+        
+        // Simple edge ordering: North -> East -> South -> West
+        return wallA.wall_direction - wallB.wall_direction;
       }
       
       return 0;
@@ -459,8 +483,8 @@ export class IsometricTileRenderer extends AbstractRenderer {
     
     // Combine tiles and walls for unified depth sorting
     const allSprites = [
-      ...visibleTiles.map(tile => ({ ...tile, spriteType: 'tile' as const })),
-      ...visibleWalls.map(wall => ({ ...wall, spriteType: 'wall' as const }))
+      ...visibleTiles.map(tile => ({ ...tile, type: 'tile' as const })),
+      ...visibleWalls.map(wall => ({ ...wall, type: 'wall' as const }))
     ];
     
     // Sort by depth (IMPROVED logic for walls)
@@ -479,30 +503,18 @@ export class IsometricTileRenderer extends AbstractRenderer {
         return a.position[0] - b.position[0];
       }
       
-      // IMPROVED: For same grid position, handle wall-specific depth sorting
-      if (a.spriteType === 'wall' && b.spriteType === 'wall') {
-        // Both are walls at same position: sort by wall direction for proper edge order
-        // North/West walls (back edges) render before East/South walls (front edges)
-        
-        const getWallDepthPriority = (wallDirection: IsometricDirection): number => {
-          switch (wallDirection) {
-            case IsometricDirection.NORTH: return 0; // Render first (back)
-            case IsometricDirection.WEST:  return 1; // Render second (back)
-            case IsometricDirection.EAST:  return 2; // Render third (front)
-            case IsometricDirection.SOUTH: return 3; // Render last (front)
-            default: return 2; // Default to middle
-          }
-        };
-        
-        // Access wall_direction from the original wall data (safe since we checked spriteType)
-        const wallA = a as unknown as WallSummary;
-        const wallB = b as unknown as WallSummary;
-        return getWallDepthPriority(wallA.wall_direction) - getWallDepthPriority(wallB.wall_direction);
+      // If position is the same, walls render after tiles (walls on top)
+      if (a.type !== b.type) {
+        return a.type === 'tile' ? -1 : 1;
       }
       
-      // If position is the same, walls render after tiles (walls on top)
-      if (a.spriteType !== b.spriteType) {
-        return a.spriteType === 'tile' ? -1 : 1;
+      // For walls: basic edge sorting (user will handle detailed positioning)
+      if (a.type === 'wall' && b.type === 'wall') {
+        const wallA = a as unknown as WallSummary;
+        const wallB = b as unknown as WallSummary;
+        
+        // Simple edge ordering: North -> East -> South -> West
+        return wallA.wall_direction - wallB.wall_direction;
       }
       
       return 0;
@@ -524,7 +536,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
 
     // Render each sprite
     sortedSprites.forEach(spriteData => {
-      if (spriteData.spriteType === 'wall') {
+      if (spriteData.type === 'wall') {
         this.renderSingleWall(spriteData as WallSummary, isometricOffset);
       } else {
         this.renderSingleTile(spriteData as TileSummary, isometricOffset);
@@ -592,7 +604,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
     const zoomLevel = snap.view.zoomLevel;
     
     // EXACT USER SPECIFICATION: Get per-sprite-type positioning settings
-    let spriteTypeSettings = battlemapActions.getSpriteTypeSettings(spriteName);
+    let spriteTypeSettings = battlemapActions.getSpriteTypeSettings(spriteName, tile.sprite_direction);
     
     if (!spriteTypeSettings) {
       // Auto-calculate for sprites without settings using user's exact formula
@@ -684,7 +696,7 @@ export class IsometricTileRenderer extends AbstractRenderer {
    */
   private renderSingleWall(wall: WallSummary, isometricOffset: any): void {
     const [gridX, gridY] = wall.position;
-    const wallKey = `wall_${gridX}_${gridY}_${wall.z_level}_${wall.wall_direction}`;
+    const wallKey = wall.uuid; // Use wall UUID as key to support multiple walls per edge
 
     // Get sprite texture
     const spriteName = wall.sprite_name || 'Floor_01';
@@ -728,47 +740,260 @@ export class IsometricTileRenderer extends AbstractRenderer {
    * Apply positioning settings to a wall sprite (same system as tiles but respects edge anchoring)
    */
   private applyWallPositioning(sprite: any, wall: WallSummary, spriteName: string, snap: any): void {
+    // Get wall positioning settings for this sprite WITH direction support
+    let wallPositioningSettings = battlemapActions.getWallPositioningSettings(spriteName, wall.sprite_direction);
+    if (!wallPositioningSettings) {
+      // Auto-calculate for walls without settings using simple manual defaults
+      const calculated = battlemapActions.calculateWallPositioning(0, 0); // Don't need sprite size for walls
+      wallPositioningSettings = calculated;
+      // Save the calculated settings
+      battlemapActions.setWallPositioningSettings(spriteName, calculated);
+      console.log(`[IsometricTileRenderer] Auto-calculated wall positioning settings for ${spriteName}`);
+    }
+
+    // NEW: Compute and store bounding box if not already computed
+    if (!wallPositioningSettings.spriteBoundingBox && sprite.texture) {
+      try {
+        // Create temporary canvas and extract texture data
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        
+        if (context) {
+          canvas.width = sprite.texture.width;
+          canvas.height = sprite.texture.height;
+          
+          const renderer = this.engine?.app?.renderer;
+          if (renderer) {
+            const textureData = renderer.extract.canvas(sprite.texture) as HTMLCanvasElement;
+            context.drawImage(textureData, 0, 0);
+            
+            const boundingBox = getCanvasBoundingBox(canvas, 1);
+            
+            if (boundingBox.width > 0 && boundingBox.height > 0) {
+              // Store bounding box relationship
+              const updatedSettings = {
+                ...wallPositioningSettings,
+                spriteBoundingBox: {
+                  originalWidth: sprite.texture.width,
+                  originalHeight: sprite.texture.height,
+                  boundingX: boundingBox.x,
+                  boundingY: boundingBox.y,
+                  boundingWidth: boundingBox.width,
+                  boundingHeight: boundingBox.height,
+                  anchorOffsetX: boundingBox.x / sprite.texture.width,
+                  anchorOffsetY: boundingBox.y / sprite.texture.height
+                }
+              };
+              
+              battlemapActions.setWallPositioningSettings(spriteName, updatedSettings);
+              wallPositioningSettings = updatedSettings;
+              
+              console.log(`[IsometricTileRenderer] Computed and stored bounding box for ${spriteName}:`, updatedSettings.spriteBoundingBox);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`[IsometricTileRenderer] Failed to compute bounding box for ${spriteName}:`, error);
+      }
+    }
+
+    // NEW: Apply sprite trimming if enabled
+    if (wallPositioningSettings.useSpriteTrimmingForWalls && wallPositioningSettings.spriteBoundingBox) {
+      // Use stored bounding box relationship (computed once, reused always)
+      const bbox = wallPositioningSettings.spriteBoundingBox;
+      
+      // Get the direction-based anchor logic (same as before)
+      const directionAnchor = getWallSpriteAnchor(wall.wall_direction);
+      
+      // Convert the direction-based anchor from bbox coordinates to sprite coordinates
+      let bboxAnchorX: number, bboxAnchorY: number;
+      
+      // Apply the same anchor logic but to the bounding box rectangle
+      if (directionAnchor.x === 0.0) {
+        // Left edge of bbox
+        bboxAnchorX = bbox.boundingX;
+      } else if (directionAnchor.x === 1.0) {
+        // Right edge of bbox  
+        bboxAnchorX = bbox.boundingX + bbox.boundingWidth;
+      } else {
+        // Center or other position
+        bboxAnchorX = bbox.boundingX + (bbox.boundingWidth * directionAnchor.x);
+      }
+      
+      if (directionAnchor.y === 0.0) {
+        // Top edge of bbox
+        bboxAnchorY = bbox.boundingY;
+      } else if (directionAnchor.y === 1.0) {
+        // Bottom edge of bbox
+        bboxAnchorY = bbox.boundingY + bbox.boundingHeight;
+      } else {
+        // Center or other position
+        bboxAnchorY = bbox.boundingY + (bbox.boundingHeight * directionAnchor.y);
+      }
+      
+      // Convert bbox anchor coordinates to sprite coordinates (0-1 range)
+      const spriteAnchorX = bboxAnchorX / bbox.originalWidth;
+      const spriteAnchorY = bboxAnchorY / bbox.originalHeight;
+      
+      // Apply the converted anchor (no position adjustments needed)
+      sprite.anchor.set(spriteAnchorX, spriteAnchorY);
+      
+      console.log(`[IsometricTileRenderer] Applied bbox anchor to ${spriteName}: direction(${directionAnchor.x}, ${directionAnchor.y}) -> bbox(${bboxAnchorX}, ${bboxAnchorY}) -> sprite(${spriteAnchorX.toFixed(3)}, ${spriteAnchorY.toFixed(3)})`);
+    } else if (wallPositioningSettings.useSpriteTrimmingForWalls && !wallPositioningSettings.spriteBoundingBox) {
+      console.warn(`[IsometricTileRenderer] Sprite trimming enabled for ${spriteName} but no bounding box stored. Please toggle trimming off and on again to recompute.`);
+    }
+
+    // Apply positioning adjustments using per-wall settings (SAME SYSTEM AS BLOCKS)
+    // FIXED: Scale positioning offsets by sprite scale independently, then apply zoom to final positioning
     const spriteScale = snap.view.spriteScale;
     const zoomLevel = snap.view.zoomLevel;
     
-    // Get wall positioning settings (same structure as tiles now)
-    let wallSettings = battlemapActions.getWallPositioningSettings(spriteName);
+    // Apply vertical positioning (same as blocks)
+    const verticalBias = wallPositioningSettings.manualVerticalBias;
+    const finalInvisibleMargin = wallPositioningSettings.invisibleMarginDown;
     
-    if (!wallSettings) {
-      // Auto-calculate using same formula as tiles
-      const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
-      if (spriteFrameSize) {
-        const calculated = battlemapActions.calculateWallPositioning(spriteFrameSize.width, spriteFrameSize.height);
-        wallSettings = calculated;
-        battlemapActions.setWallPositioningSettings(spriteName, calculated);
-      } else {
-        // Fallback to default values
-        wallSettings = {
-          invisibleMarginUp: 8,
-          invisibleMarginDown: 8,
-          invisibleMarginLeft: 8,
-          invisibleMarginRight: 8,
-          autoComputedVerticalBias: 36,
-          useAutoComputed: true,
-          manualVerticalBias: 36
-        };
-      }
-    }
-    
-    // Use same positioning logic as tiles
-    const verticalBias = wallSettings.useAutoComputed 
-      ? wallSettings.autoComputedVerticalBias 
-      : wallSettings.manualVerticalBias;
-    
-    const finalInvisibleMargin = wallSettings.invisibleMarginDown;
-    
-    // Apply positioning based on snap position (same as tiles)
+    // Apply positioning based on snap position with proper independent scaling
     if (wall.snap_position === 'above') {
+      // Above positioning: apply vertical bias + invisible margin, scaled by sprite scale first
       const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
     } else {
+      // Below positioning: only apply invisible margin to snap to edge
       const spriteScaledOffset = finalInvisibleMargin * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
+    }
+
+    // NEW: Apply horizontal offset for fine-tuning wall X position
+    const horizontalOffset = wallPositioningSettings.manualHorizontalOffset || 0;
+    if (horizontalOffset !== 0) {
+      const spriteScaledHorizontalOffset = horizontalOffset * spriteScale;
+      sprite.x += spriteScaledHorizontalOffset * zoomLevel;
+      console.log(`[IsometricTileRenderer] Applied horizontal offset to ${spriteName}: ${horizontalOffset}px (scaled: ${spriteScaledHorizontalOffset * zoomLevel}px)`);
+    }
+
+    // NEW: Apply diagonal offsets along diamond border axes
+    const diagonalNEOffset = wallPositioningSettings.manualDiagonalNorthEastOffset || 0;
+    const diagonalNWOffset = wallPositioningSettings.manualDiagonalNorthWestOffset || 0;
+    
+    if (diagonalNEOffset !== 0 || diagonalNWOffset !== 0) {
+      // NE diagonal: positive values move toward northeast (right+up), negative toward southwest (left+down)  
+      // NW diagonal: positive values move toward northwest (left+up), negative toward southeast (right+down)
+      
+      // Convert diagonal movement to X,Y components
+      // For isometric grid: NE diagonal has slope 0.5, NW diagonal has slope -0.5
+      const neXComponent = diagonalNEOffset * Math.cos(Math.PI / 6); // ~0.866 (diamond width component)
+      const neYComponent = -diagonalNEOffset * Math.sin(Math.PI / 6); // ~-0.5 (diamond height component, negative = up)
+      
+      const nwXComponent = -diagonalNWOffset * Math.cos(Math.PI / 6); // ~-0.866 (negative = left)
+      const nwYComponent = -diagonalNWOffset * Math.sin(Math.PI / 6); // ~-0.5 (negative = up)
+      
+      // Apply scaled and zoomed offsets
+      const totalXOffset = (neXComponent + nwXComponent) * spriteScale * zoomLevel;
+      const totalYOffset = (neYComponent + nwYComponent) * spriteScale * zoomLevel;
+      
+      sprite.x += totalXOffset;
+      sprite.y += totalYOffset;
+      
+      if (diagonalNEOffset !== 0 || diagonalNWOffset !== 0) {
+        console.log(`[IsometricTileRenderer] Applied diagonal offsets to ${spriteName}: NE=${diagonalNEOffset}px, NW=${diagonalNWOffset}px (total X=${totalXOffset.toFixed(1)}px, Y=${totalYOffset.toFixed(1)}px)`);
+      }
+    }
+
+    // NEW: Apply wall-relative offsets (the magic happens here!)
+    const relativeAlongEdge = wallPositioningSettings.relativeAlongEdgeOffset || 0;
+    const relativeTowardCenter = wallPositioningSettings.relativeTowardCenterOffset || 0;
+    const relativeDiagA = wallPositioningSettings.relativeDiagonalAOffset || 0;
+    const relativeDiagB = wallPositioningSettings.relativeDiagonalBOffset || 0;
+    
+    if (relativeAlongEdge !== 0 || relativeTowardCenter !== 0 || relativeDiagA !== 0 || relativeDiagB !== 0) {
+      // Convert relative directions to actual screen directions based on wall direction
+      let alongEdgeX = 0, alongEdgeY = 0;       // Direction parallel to wall edge
+      let towardCenterX = 0, towardCenterY = 0; // Direction toward diamond center
+      let diagAX = 0, diagAY = 0;               // First diagonal relative to edge
+      let diagBX = 0, diagBY = 0;               // Second diagonal relative to edge
+      
+      // NEW: Sign multipliers for consistent diagonal normalization
+      // User inputs positive values (8, 3) - system applies correct signs per wall direction
+      let diagASignMultiplier = 1;
+      let diagBSignMultiplier = 1;
+      
+      // NEW: Check sprite-specific division setting
+      const useADivision = wallPositioningSettings.useADivisionForNorthEast ?? true; // Default to true for backward compatibility
+      
+      switch (wall.wall_direction) {
+        case IsometricDirection.NORTH: // Top edge
+          // Along edge: left/right along top edge
+          alongEdgeX = 1; alongEdgeY = 0;
+          // Toward center: down into diamond
+          towardCenterX = 0; towardCenterY = 1;
+          // Diagonal normalization: North needs A=-4 (8÷2) if division enabled, A=-8 if disabled, B=-3
+          diagASignMultiplier = useADivision ? -0.5 : -1; // NEW: Use flag to control division
+          diagBSignMultiplier = -1;
+          // Standard diagonal directions (before sign application)
+          diagAX = Math.cos(Math.PI / 4); diagAY = Math.sin(Math.PI / 4);
+          diagBX = Math.cos(-Math.PI / 4); diagBY = Math.sin(-Math.PI / 4);
+          break;
+          
+        case IsometricDirection.EAST: // Right edge
+          // Along edge: up/down along right edge
+          alongEdgeX = 0; alongEdgeY = 1;
+          // Toward center: left into diamond
+          towardCenterX = -1; towardCenterY = 0;
+          // Diagonal normalization: East needs A=-4 (8÷2) if division enabled, A=-8 if disabled, B=+3
+          diagASignMultiplier = useADivision ? -0.5 : -1; // NEW: Use flag to control division
+          diagBSignMultiplier = +1;
+          // Standard diagonal directions (before sign application)
+          diagAX = Math.cos(Math.PI / 2 + Math.PI / 4); diagAY = Math.sin(Math.PI / 2 + Math.PI / 4);
+          diagBX = Math.cos(Math.PI / 2 - Math.PI / 4); diagBY = Math.sin(Math.PI / 2 - Math.PI / 4);
+          break;
+          
+        case IsometricDirection.SOUTH: // Bottom edge
+          // Along edge: right/left along bottom edge
+          alongEdgeX = -1; alongEdgeY = 0;
+          // Toward center: up into diamond
+          towardCenterX = 0; towardCenterY = -1;
+          // Diagonal normalization: South needs A=+8, B=+3 → both positive (PERFECT)
+          diagASignMultiplier = +1;
+          diagBSignMultiplier = +1;
+          // Standard diagonal directions (before sign application)
+          diagAX = Math.cos(Math.PI + Math.PI / 4); diagAY = Math.sin(Math.PI + Math.PI / 4);
+          diagBX = Math.cos(Math.PI - Math.PI / 4); diagBY = Math.sin(Math.PI - Math.PI / 4);
+          break;
+          
+        case IsometricDirection.WEST: // Left edge
+          // Along edge: down/up along left edge
+          alongEdgeX = 0; alongEdgeY = -1;
+          // Toward center: right into diamond
+          towardCenterX = 1; towardCenterY = 0;
+          // Diagonal normalization: West needs A=+8, B=-3 → A positive, B negative (PERFECT)
+          diagASignMultiplier = +1;
+          diagBSignMultiplier = -1;
+          // Standard diagonal directions (before sign application)
+          diagAX = Math.cos(-Math.PI / 2 + Math.PI / 4); diagAY = Math.sin(-Math.PI / 2 + Math.PI / 4);
+          diagBX = Math.cos(-Math.PI / 2 - Math.PI / 4); diagBY = Math.sin(-Math.PI / 2 - Math.PI / 4);
+          break;
+      }
+      
+      // Calculate total relative offset with NORMALIZED diagonal inputs
+      const totalRelativeX = (
+        relativeAlongEdge * alongEdgeX +
+        relativeTowardCenter * towardCenterX +
+        (relativeDiagA * diagASignMultiplier) * diagAX +
+        (relativeDiagB * diagBSignMultiplier) * diagBX
+      ) * spriteScale * zoomLevel;
+      
+      const totalRelativeY = (
+        relativeAlongEdge * alongEdgeY +
+        relativeTowardCenter * towardCenterY +
+        (relativeDiagA * diagASignMultiplier) * diagAY +
+        (relativeDiagB * diagBSignMultiplier) * diagBY
+      ) * spriteScale * zoomLevel;
+      
+      // Apply the relative offsets
+      sprite.x += totalRelativeX;
+      sprite.y += totalRelativeY;
+      
+      console.log(`[IsometricTileRenderer] Applied NORMALIZED wall-relative offsets to ${spriteName} (${['North', 'East', 'South', 'West'][wall.wall_direction]} wall): DiagA=${relativeDiagA}×${diagASignMultiplier}=${relativeDiagA * diagASignMultiplier}, DiagB=${relativeDiagB}×${diagBSignMultiplier}=${relativeDiagB * diagBSignMultiplier} (A-Division: ${useADivision ? 'ON' : 'OFF'}) → (${totalRelativeX.toFixed(1)}, ${totalRelativeY.toFixed(1)})`);
     }
 
     // FIXED: Don't override anchor - it's already set correctly based on wall direction
@@ -899,17 +1124,19 @@ export class IsometricTileRenderer extends AbstractRenderer {
   }
 
   /**
-   * Clear all active tile and wall sprites
+   * Clear all sprites and return them to pool
    */
   private clearAllTiles(): void {
-    // Return all active tile sprites to pool
+    // Return tile sprites to pool
     this.activeTileSprites.forEach(sprite => {
+      this.tilesContainer.removeChild(sprite);
       this.returnSpriteToPool(sprite);
     });
     this.activeTileSprites.clear();
 
-    // Return all active wall sprites to pool
+    // Return wall sprites to pool
     this.activeWallSprites.forEach(sprite => {
+      this.tilesContainer.removeChild(sprite);
       this.returnSpriteToPool(sprite);
     });
     this.activeWallSprites.clear();
