@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { battlemapActions, battlemapStore } from '../../store/battlemapStore';
+import { battlemapActions, battlemapStore } from '../../store';
 import { useSnapshot } from 'valtio';
 
 export type TileType = 'floor' | 'wall' | 'water' | 'lava' | 'grass' | 'erase';

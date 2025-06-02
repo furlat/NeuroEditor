@@ -1,1 +1,1 @@
-export * from './battlemapStore'; 
+export * from './battlemap'; 

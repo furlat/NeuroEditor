@@ -1,5 +1,5 @@
 import { Ticker } from 'pixi.js';
-import { battlemapActions, battlemapStore } from '../store/battlemapStore';
+import { battlemapActions, battlemapStore } from '../store';
 
 /**
  * MovementController handles smooth camera movement using PixiJS's ticker system

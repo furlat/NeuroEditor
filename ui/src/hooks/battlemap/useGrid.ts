@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useSnapshot } from 'valtio';
-import { battlemapStore } from '../../store/battlemapStore';
+import { battlemapStore } from '../../store';
 
 /**
  * Simplified hook for container size management

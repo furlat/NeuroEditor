@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useSnapshot } from 'valtio';
-import { battlemapStore, battlemapActions } from '../../store/battlemapStore';
+import { battlemapStore, battlemapActions } from '../../store';
 
 // Constants for zoom
 const MIN_ZOOM = 0.1;
