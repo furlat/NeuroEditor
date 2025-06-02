@@ -280,53 +280,23 @@ export class IsometricTileRenderer extends AbstractRenderer {
   }
 
   /**
-   * Filter walls based on shadow/invisible mode - same logic as tiles
+   * Filter walls based on shadow/invisible mode - EXACT SAME LOGIC AS TILES
    */
   private getVisibleWalls(): WallSummary[] {
-    const visibleWalls: WallSummary[] = [];
+    const allWalls = Object.values(this.wallsRef);
     const snap = battlemapStore;
     
-    // Get all walls, then filter based on grid layer visibility
-    Object.values(this.wallsRef).forEach(wall => {
-      const isLayerVisible = snap.view.gridLayerVisibility[wall.z_level] !== false;
-      
-      if (isLayerVisible && wall.visible) {
-        // Filter by layer visibility mode
-        if (snap.view.layerVisibilityMode === LayerVisibilityMode.INVISIBLE) {
-          // Only show walls on the active layer
-          if (wall.z_level === snap.view.activeZLayer) {
-            visibleWalls.push(wall);
-          }
-        } else {
-          // Show all walls (NORMAL or SHADOW mode)
-          visibleWalls.push(wall);
-        }
-      }
-    });
-    
-    // Sort walls by z_level, then by creation order (UUID timestamp) for consistent stacking
-    return visibleWalls.sort((a, b) => {
-      // First sort by Z level
-      if (a.z_level !== b.z_level) {
-        return a.z_level - b.z_level;
-      }
-      
-      // Then by position for consistency
-      if (a.position[0] !== b.position[0]) {
-        return a.position[0] - b.position[0];
-      }
-      if (a.position[1] !== b.position[1]) {
-        return a.position[1] - b.position[1];
-      }
-      
-      // Then by wall direction for consistent ordering
-      if (a.wall_direction !== b.wall_direction) {
-        return a.wall_direction - b.wall_direction;
-      }
-      
-      // Finally by UUID (which includes timestamp) for creation order
-      return a.uuid.localeCompare(b.uuid);
-    });
+    switch (snap.view.layerVisibilityMode) {
+      case LayerVisibilityMode.SHADOW:
+      case LayerVisibilityMode.NORMAL:
+        // SHADOW and NORMAL modes: Show ALL walls (grid visibility doesn't affect walls, same as tiles)
+        return allWalls;
+      case LayerVisibilityMode.INVISIBLE:
+        // INVISIBLE mode: Show ONLY active layer walls
+        return allWalls.filter(wall => wall.z_level === snap.view.activeZLayer);
+      default:
+        return allWalls;
+    }
   }
 
   /**
