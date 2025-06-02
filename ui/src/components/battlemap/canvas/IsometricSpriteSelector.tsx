@@ -57,82 +57,37 @@ const sortSpritesByHeight = (sprites: string[]): string[] => {
   });
 };
 
-// FIXED: Use actual folder structure instead of name filtering
-const getAllBlockSprites = (): string[] => {
-  // Return ALL available block sprites from the filesystem
-  return [
-    'UnderBlock_01',
-    'UnderBlock_Corner_01', 
-    'UnderBlock_Bottom_Tall_01',
-    'UnderBlock_Mid_Tall_01',
-    'FloorBlock_Tall_01',
-    'FloorBlock_Corner_Tall_01',
-    'FloorBlock_Top_Corner_01',
-    'FloorBlock_01',
-    'FloorBlock_Corner_01',
-    'GardenFloor_Path_03',
-    'GardenFloor_Path_01',
-    'GardenFloor_01',
-    'GardenFloor_HalfSquare_02',
-    'GardenFloor_HalfSquare_01', 
-    'GardenFloor_Square_01',
-    'GardenFloor_Path_02',
-    'FloorBlock_Mid_01',
-    'FloorBlock_Bottom_01',
-    'UnderBlock_Tall_01',
-    'GardenBlock_Path_03',
-    'GardenBlock_Path_01',
-    'GardenBlock_01',
-    'GardenBlock_HalfSquare_02',
-    'GardenBlock_HalfSquare_01',
-    'GardenBlock_Square_01',
-    'GardenBlock_Path_02',
-    'UnderBlock_Corner_Tall_01',
-    'UnderFloor_01',
-    'Floor_01',
-    'Floor_Corner_01',
-    'FloorBlock_Top_01'
-  ];
+// Dynamic sprite loading functions that get sprites from the sprite manager
+const getAllBlockSprites = async (): Promise<string[]> => {
+  try {
+    // Ensure sprites are loaded first
+    await isometricSpriteManager.loadAll();
+    
+    // Get actually loaded block sprites from the sprite manager
+    const blockSprites = isometricSpriteManager.getSpritesInCategory(SpriteCategory.BLOCKS);
+    console.log('[IsometricSpriteSelector] Loaded block sprites from sprite manager:', blockSprites);
+    return blockSprites;
+  } catch (error) {
+    console.error('[IsometricSpriteSelector] Error loading block sprites:', error);
+    // Fallback to a minimal set if loading fails
+    return ['Floor_01', 'FloorBlock_01', 'GardenFloor_01'];
+  }
 };
 
-const getAllWallSprites = (): string[] => {
-  // Return ALL available wall sprites from the filesystem  
-  return [
-    'Door_01',
-    'DoorFrame_03',
-    'Door_02', 
-    'Door_03',
-    'DoorFrame_02',
-    'DoorFrame_01',
-    'Door_04',
-    'Door_05',
-    'Stair_Chunk_03',
-    'StairChunk_02',
-    'WallBars_Open_Tall_01',
-    'DoorBars_Tall_01',
-    'WallBars_Open_Small_01',
-    'DoorBars_Small_01',
-    'WallBrick_Old_Small_01',
-    'WallBrick_Old_Small_02',
-    'WallBrick_Old_Small_03',
-    'WallBrick_Old_Tall_02',
-    'WallBrick_Old_Tall_03',
-    'WallBars_Tall_01',
-    'WallBars_Closed_Tall_01',
-    'Stairs_Straight_01',
-    'Stairs_Chunk_01',
-    'Stairs_L_01',
-    'WallBrick_Tall_01',
-    'WallBars_Small_01',
-    'WallBars_Closed_Small_01',
-    'WallBrick_Old_Tall_01',
-    'Archway_01',
-    'Window_Large_02',
-    'Window_Large_01',
-    'Window_Small_02',
-    'Window_Small_01',
-    'WallBrick_Small_01'
-  ];
+const getAllWallSprites = async (): Promise<string[]> => {
+  try {
+    // Ensure sprites are loaded first
+    await isometricSpriteManager.loadAll();
+    
+    // Get actually loaded wall sprites from the sprite manager
+    const wallSprites = isometricSpriteManager.getSpritesInCategory(SpriteCategory.WALLS);
+    console.log('[IsometricSpriteSelector] Loaded wall sprites from sprite manager:', wallSprites);
+    return wallSprites;
+  } catch (error) {
+    console.error('[IsometricSpriteSelector] Error loading wall sprites:', error);
+    // Fallback to a minimal set if loading fails
+    return ['WallBrick_Small_01', 'Door_01', 'Window_Small_01'];
+  }
 };
 
 // Component for sprite preview
@@ -287,20 +242,25 @@ const IsometricSpriteSelector: React.FC<IsometricSpriteSelectorProps> = ({ isLoc
     const loadSprites = async () => {
       try {
         setIsLoading(true);
-        await isometricSpriteManager.loadAll();
         
-        // Load sprites based on current mode using folder structure
+        // Load sprites based on current mode using the sprite manager
+        let sprites: string[] = [];
         if (isWallMode) {
-          const wallSprites = getAllWallSprites();
-          setAvailableSprites(wallSprites);
-          console.log(`[IsometricSpriteSelector] Loaded ${wallSprites.length} wall sprites from /walls folder`);
+          sprites = await getAllWallSprites();
+          console.log(`[IsometricSpriteSelector] Loaded ${sprites.length} wall sprites from sprite manager`);
         } else {
-          const blockSprites = getAllBlockSprites();
-          setAvailableSprites(blockSprites);
-          console.log(`[IsometricSpriteSelector] Loaded ${blockSprites.length} block sprites from /blocks folder`);
+          sprites = await getAllBlockSprites();
+          console.log(`[IsometricSpriteSelector] Loaded ${sprites.length} block sprites from sprite manager`);
         }
+        
+        // Sort sprites by height (shorter first, then alphabetically)
+        const sortedSprites = sortSpritesByHeight(sprites);
+        setAvailableSprites(sortedSprites);
+        
+        console.log(`[IsometricSpriteSelector] Sorted ${sortedSprites.length} ${isWallMode ? 'wall' : 'block'} sprites by height`);
       } catch (error) {
         console.error('[IsometricSpriteSelector] Failed to load sprites:', error);
+        setAvailableSprites([]); // Set empty array on error
       } finally {
         setIsLoading(false);
       }
