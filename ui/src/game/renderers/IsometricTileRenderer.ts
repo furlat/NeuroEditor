@@ -64,6 +64,13 @@ export class IsometricTileRenderer extends AbstractRenderer {
   private lastSpriteTypeSettingsHash: string = '';
   private lastWallPositioningSettingsHash: string = '';
 
+  // NEW: Local cache for bounding boxes to prevent infinite loops
+  private boundingBoxCache: Map<string, any> = new Map();
+  private isCurrentlyRendering: boolean = false;
+  
+  // NEW: Deferred store updates to prevent infinite loops
+  private deferredStoreUpdates: Array<() => void> = [];
+
   /**
    * Initialize the renderer
    */
@@ -379,64 +386,93 @@ export class IsometricTileRenderer extends AbstractRenderer {
       return;
     }
     
-    // console.log('[IsometricTileRenderer] Starting render cycle...');
-    
-    // Check if visibility has changed
-    const currentTileVisibility = battlemapStore.controls.isTilesVisible;
-    const hasVisibilityChanged = this.lastTileVisibility !== currentTileVisibility;
-    const hasZLevelChanged = this.lastShowZLevel !== battlemapStore.view.showZLevel;
-    
-    // Update visibility based on controls
-    this.tilesContainer.visible = currentTileVisibility;
-    this.fallbackGraphics.visible = currentTileVisibility;
-    
-    // Early exit if tiles are not visible
-    if (!currentTileVisibility) {
-      this.clearAllTiles();
-      this.updateLastKnownStates();
-      // console.log('[IsometricTileRenderer] Tiles not visible, cleared and exiting');
+    // Prevent recursive rendering and store updates
+    if (this.isCurrentlyRendering) {
+      console.warn('[IsometricTileRenderer] Skipping render - already rendering');
       return;
     }
     
-    // Check for various changes that require re-rendering
-    const hasPositionChanged = 
-      this.lastOffset.x !== battlemapStore.view.offset.x || 
-      this.lastOffset.y !== battlemapStore.view.offset.y;
+    this.isCurrentlyRendering = true;
     
-    const hasGridDiamondWidthChanged = this.lastGridDiamondWidth !== battlemapStore.view.gridDiamondWidth;
-    const hasSpriteScaleChanged = this.lastSpriteScale !== battlemapStore.view.spriteScale;
-    const hasZoomChanged = this.lastZoomLevel !== battlemapStore.view.zoomLevel;
-    
-    // ADDED: Check for grid layer visibility changes
-    const hasGridLayerVisibilityChanged = 
-      this.lastGridLayerVisibility[0] !== battlemapStore.view.gridLayerVisibility[0] ||
-      this.lastGridLayerVisibility[1] !== battlemapStore.view.gridLayerVisibility[1] ||
-      this.lastGridLayerVisibility[2] !== battlemapStore.view.gridLayerVisibility[2];
-    
-    // NEW: Check for sprite type settings changes (margins, vertical bias, etc.)
-    const hasSpriteTypeSettingsChanged = this.hasSpriteTypeSettingsChanged();
-    const hasWallPositioningSettingsChanged = this.hasWallPositioningSettingsChanged();
-    
-    const snap = battlemapStore;
-    // console.log(`[IsometricTileRenderer] Change detection - Tiles: ${this.tilesNeedUpdate}, Walls: ${this.wallsNeedUpdate}, Position: ${hasPositionChanged}, Grid: ${hasGridDiamondWidthChanged}, Scale: ${hasSpriteScaleChanged}, Zoom: ${hasZoomChanged}, Z-Level: ${hasZLevelChanged}, Visibility: ${hasVisibilityChanged}, GridLayers: ${hasGridLayerVisibilityChanged}, SpriteSettings: ${hasSpriteTypeSettingsChanged}, WallSettings: ${hasWallPositioningSettingsChanged}, WASD: ${snap.view.wasd_moving}`);
-    
-    // Render sprites if needed - now includes both tiles and walls
-    if (this.tilesNeedUpdate || this.wallsNeedUpdate || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || hasZoomChanged ||
-        hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || hasSpriteTypeSettingsChanged || hasWallPositioningSettingsChanged || battlemapStore.view.wasd_moving) {
+    try {
+      // console.log('[IsometricTileRenderer] Starting render cycle...');
       
-      // console.log('[IsometricTileRenderer] Triggering sprite re-render due to changes');
+      // Check if visibility has changed
+      const currentTileVisibility = battlemapStore.controls.isTilesVisible;
+      const hasVisibilityChanged = this.lastTileVisibility !== currentTileVisibility;
+      const hasZLevelChanged = this.lastShowZLevel !== battlemapStore.view.showZLevel;
       
-      if (this.spritesLoaded) {
-        this.renderSpritesWithTextures();
-      } else {
-        this.renderFallbackSprites();
+      // Update visibility based on controls
+      this.tilesContainer.visible = currentTileVisibility;
+      this.fallbackGraphics.visible = currentTileVisibility;
+      
+      // Early exit if tiles are not visible
+      if (!currentTileVisibility) {
+        this.clearAllTiles();
+        this.updateLastKnownStates();
+        // console.log('[IsometricTileRenderer] Tiles not visible, cleared and exiting');
+        return;
       }
       
-      this.tilesNeedUpdate = false;
-      this.wallsNeedUpdate = false;
-      this.updateLastKnownStates();
-    } else {
-      // console.log('[IsometricTileRenderer] No changes detected, skipping render');
+      // Check for various changes that require re-rendering
+      const hasPositionChanged = 
+        this.lastOffset.x !== battlemapStore.view.offset.x || 
+        this.lastOffset.y !== battlemapStore.view.offset.y;
+      
+      const hasGridDiamondWidthChanged = this.lastGridDiamondWidth !== battlemapStore.view.gridDiamondWidth;
+      const hasSpriteScaleChanged = this.lastSpriteScale !== battlemapStore.view.spriteScale;
+      const hasZoomChanged = this.lastZoomLevel !== battlemapStore.view.zoomLevel;
+      
+      // ADDED: Check for grid layer visibility changes
+      const hasGridLayerVisibilityChanged = 
+        this.lastGridLayerVisibility[0] !== battlemapStore.view.gridLayerVisibility[0] ||
+        this.lastGridLayerVisibility[1] !== battlemapStore.view.gridLayerVisibility[1] ||
+        this.lastGridLayerVisibility[2] !== battlemapStore.view.gridLayerVisibility[2];
+      
+      // NEW: Check for sprite type settings changes (margins, vertical bias, etc.)
+      const hasSpriteTypeSettingsChanged = this.hasSpriteTypeSettingsChanged();
+      const hasWallPositioningSettingsChanged = this.hasWallPositioningSettingsChanged();
+      
+      const snap = battlemapStore;
+      // console.log(`[IsometricTileRenderer] Change detection - Tiles: ${this.tilesNeedUpdate}, Walls: ${this.wallsNeedUpdate}, Position: ${hasPositionChanged}, Grid: ${hasGridDiamondWidthChanged}, Scale: ${hasSpriteScaleChanged}, Zoom: ${hasZoomChanged}, Z-Level: ${hasZLevelChanged}, Visibility: ${hasVisibilityChanged}, GridLayers: ${hasGridLayerVisibilityChanged}, SpriteSettings: ${hasSpriteTypeSettingsChanged}, WallSettings: ${hasWallPositioningSettingsChanged}, WASD: ${snap.view.wasd_moving}`);
+      
+      // Render sprites if needed - now includes both tiles and walls
+      if (this.tilesNeedUpdate || this.wallsNeedUpdate || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || hasZoomChanged ||
+          hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || hasSpriteTypeSettingsChanged || hasWallPositioningSettingsChanged || battlemapStore.view.wasd_moving) {
+        
+        // console.log('[IsometricTileRenderer] Triggering sprite re-render due to changes');
+        
+        if (this.spritesLoaded) {
+          this.renderSpritesWithTextures();
+        } else {
+          this.renderFallbackSprites();
+        }
+        
+        this.tilesNeedUpdate = false;
+        this.wallsNeedUpdate = false;
+        this.updateLastKnownStates();
+      } else {
+        // console.log('[IsometricTileRenderer] No changes detected, skipping render');
+      }
+    } finally {
+      this.isCurrentlyRendering = false;
+      
+      // Process any deferred store updates
+      if (this.deferredStoreUpdates.length > 0) {
+        console.log(`[IsometricTileRenderer] Processing ${this.deferredStoreUpdates.length} deferred store updates`);
+        // Use setTimeout to ensure updates happen after current render cycle
+        setTimeout(() => {
+          const updates = [...this.deferredStoreUpdates];
+          this.deferredStoreUpdates = [];
+          updates.forEach(update => {
+            try {
+              update();
+            } catch (error) {
+              console.error('[IsometricTileRenderer] Error in deferred store update:', error);
+            }
+          });
+        }, 0);
+      }
     }
   }
   
@@ -716,13 +752,25 @@ export class IsometricTileRenderer extends AbstractRenderer {
       // Auto-calculate for walls without settings using simple manual defaults
       const calculated = battlemapActions.calculateWallPositioning(0, 0); // Don't need sprite size for walls
       wallPositioningSettings = calculated;
-      // Save the calculated settings
-      battlemapActions.setWallPositioningSettings(spriteName, calculated);
-      console.log(`[IsometricTileRenderer] Auto-calculated wall positioning settings for ${spriteName}`);
+      
+      // Only save to store if not currently rendering to prevent infinite loops
+      if (!this.isCurrentlyRendering) {
+        battlemapActions.setWallPositioningSettings(spriteName, calculated);
+        console.log(`[IsometricTileRenderer] Auto-calculated wall positioning settings for ${spriteName}`);
+      } else {
+        // Defer store update until after rendering
+        this.deferredStoreUpdates.push(() => {
+          battlemapActions.setWallPositioningSettings(spriteName, calculated);
+          console.log(`[IsometricTileRenderer] Auto-calculated wall positioning settings for ${spriteName} (deferred)`);
+        });
+      }
     }
 
     // NEW: Compute and store bounding box if not already computed
-    if (!wallPositioningSettings.spriteBoundingBox && sprite.texture) {
+    const cacheKey = `${spriteName}_${wall.sprite_direction}`;
+    let boundingBoxData = this.boundingBoxCache.get(cacheKey) || wallPositioningSettings.spriteBoundingBox;
+    
+    if (!boundingBoxData && sprite.texture) {
       try {
         // Create temporary canvas and extract texture data
         const canvas = document.createElement('canvas');
@@ -740,25 +788,46 @@ export class IsometricTileRenderer extends AbstractRenderer {
             const boundingBox = getCanvasBoundingBox(canvas, 1);
             
             if (boundingBox.width > 0 && boundingBox.height > 0) {
-              // Store bounding box relationship
-              const updatedSettings = {
-                ...wallPositioningSettings,
-                spriteBoundingBox: {
-                  originalWidth: sprite.texture.width,
-                  originalHeight: sprite.texture.height,
-                  boundingX: boundingBox.x,
-                  boundingY: boundingBox.y,
-                  boundingWidth: boundingBox.width,
-                  boundingHeight: boundingBox.height,
-                  anchorOffsetX: boundingBox.x / sprite.texture.width,
-                  anchorOffsetY: boundingBox.y / sprite.texture.height
-                }
+              // Create bounding box data
+              boundingBoxData = {
+                originalWidth: sprite.texture.width,
+                originalHeight: sprite.texture.height,
+                boundingX: boundingBox.x,
+                boundingY: boundingBox.y,
+                boundingWidth: boundingBox.width,
+                boundingHeight: boundingBox.height,
+                anchorOffsetX: boundingBox.x / sprite.texture.width,
+                anchorOffsetY: boundingBox.y / sprite.texture.height
               };
               
-              battlemapActions.setWallPositioningSettings(spriteName, updatedSettings);
-              wallPositioningSettings = updatedSettings;
+              // Cache locally to prevent recomputation in this render cycle
+              this.boundingBoxCache.set(cacheKey, boundingBoxData);
               
-              console.log(`[IsometricTileRenderer] Computed and stored bounding box for ${spriteName}:`, updatedSettings.spriteBoundingBox);
+              // Only save to store if not currently rendering to prevent infinite loops
+              if (!this.isCurrentlyRendering) {
+                const updatedSettings = {
+                  ...wallPositioningSettings,
+                  spriteBoundingBox: boundingBoxData
+                };
+                battlemapActions.setWallPositioningSettings(spriteName, updatedSettings);
+                wallPositioningSettings = updatedSettings;
+                console.log(`[IsometricTileRenderer] Computed and stored bounding box for ${spriteName}:`, boundingBoxData);
+              } else {
+                // During rendering, just update local reference and defer store update
+                wallPositioningSettings = {
+                  ...wallPositioningSettings,
+                  spriteBoundingBox: boundingBoxData
+                };
+                this.deferredStoreUpdates.push(() => {
+                  const updatedSettings = {
+                    ...battlemapActions.getWallPositioningSettings(spriteName, wall.sprite_direction),
+                    spriteBoundingBox: boundingBoxData
+                  };
+                  battlemapActions.setWallPositioningSettings(spriteName, updatedSettings);
+                  console.log(`[IsometricTileRenderer] Computed and stored bounding box for ${spriteName} (deferred):`, boundingBoxData);
+                });
+                console.log(`[IsometricTileRenderer] Computed bounding box for ${spriteName} (cached locally during render):`, boundingBoxData);
+              }
             }
           }
         }
@@ -768,9 +837,9 @@ export class IsometricTileRenderer extends AbstractRenderer {
     }
 
     // NEW: Apply sprite trimming if enabled
-    if (wallPositioningSettings.useSpriteTrimmingForWalls && wallPositioningSettings.spriteBoundingBox) {
-      // Use stored bounding box relationship (computed once, reused always)
-      const bbox = wallPositioningSettings.spriteBoundingBox;
+    if (wallPositioningSettings.useSpriteTrimmingForWalls && boundingBoxData) {
+      // Use stored/cached bounding box relationship
+      const bbox = boundingBoxData;
       
       // Get the direction-based anchor logic (same as before)
       const directionAnchor = getWallSpriteAnchor(wall.wall_direction);
@@ -809,8 +878,8 @@ export class IsometricTileRenderer extends AbstractRenderer {
       sprite.anchor.set(spriteAnchorX, spriteAnchorY);
       
       console.log(`[IsometricTileRenderer] Applied bbox anchor to ${spriteName}: direction(${directionAnchor.x}, ${directionAnchor.y}) -> bbox(${bboxAnchorX}, ${bboxAnchorY}) -> sprite(${spriteAnchorX.toFixed(3)}, ${spriteAnchorY.toFixed(3)})`);
-    } else if (wallPositioningSettings.useSpriteTrimmingForWalls && !wallPositioningSettings.spriteBoundingBox) {
-      console.warn(`[IsometricTileRenderer] Sprite trimming enabled for ${spriteName} but no bounding box stored. Please toggle trimming off and on again to recompute.`);
+    } else if (wallPositioningSettings.useSpriteTrimmingForWalls && !boundingBoxData) {
+      console.warn(`[IsometricTileRenderer] Sprite trimming enabled for ${spriteName} but no bounding box available. Computing on next non-rendering cycle.`);
     }
 
     // Apply positioning adjustments using per-wall settings (SAME SYSTEM AS BLOCKS)
@@ -1116,6 +1185,24 @@ export class IsometricTileRenderer extends AbstractRenderer {
   }
 
   /**
+   * Clear bounding box cache (useful when sprites change)
+   */
+  private clearBoundingBoxCache(): void {
+    this.boundingBoxCache.clear();
+    console.log('[IsometricTileRenderer] Cleared bounding box cache');
+  }
+
+  /**
+   * Force recomputation of all bounding boxes on next render
+   */
+  public forceBoundingBoxRecomputation(): void {
+    this.clearBoundingBoxCache();
+    this.tilesNeedUpdate = true;
+    this.wallsNeedUpdate = true;
+    console.log('[IsometricTileRenderer] Forced bounding box recomputation');
+  }
+
+  /**
    * Get color for tile based on type - simplified for local editor
    */
   private getTileColor(tile: TileSummary): number {
@@ -1138,6 +1225,9 @@ export class IsometricTileRenderer extends AbstractRenderer {
   destroy(): void {
     // Clear all tiles
     this.clearAllTiles();
+    
+    // Clear caches
+    this.clearBoundingBoxCache();
     
     // Clean up sprite pool
     this.spritePool.forEach(sprite => {
