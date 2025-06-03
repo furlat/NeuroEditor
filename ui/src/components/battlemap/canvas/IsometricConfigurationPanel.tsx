@@ -2117,7 +2117,8 @@ NW Diagonal: ↖️ + northwest, ↘️ - southeast`}
                       y: storedBbox.boundingY,
                       width: storedBbox.boundingWidth,
                       height: storedBbox.boundingHeight
-                    }
+                    },
+                    error: undefined // Add error property to match the other branch
                   } : getSpriteBoundingBoxInfo(isometricEditor.selectedSpriteName);
                   
                   return (
