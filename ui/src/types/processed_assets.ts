@@ -178,6 +178,62 @@ export interface MutableSourceProcessingConfiguration {
 // ============================================================================
 
 /**
+ * Grid attachment points for different asset types
+ */
+export enum GridAnchorPoint {
+  CENTER = 'center',           // Center of diamond (default for tiles)
+  NORTH_EDGE = 'north_edge',   // North edge of diamond  
+  EAST_EDGE = 'east_edge',     // East edge of diamond
+  SOUTH_EDGE = 'south_edge',   // South edge of diamond
+  WEST_EDGE = 'west_edge',     // West edge of diamond
+  NORTH_CORNER = 'north_corner', // North corner of diamond
+  EAST_CORNER = 'east_corner',   // East corner of diamond  
+  SOUTH_CORNER = 'south_corner', // South corner of diamond
+  WEST_CORNER = 'west_corner',   // West corner of diamond
+  CUSTOM = 'custom'            // Custom position using gridAnchorX/Y
+}
+
+/**
+ * Sprite anchor configuration
+ */
+export interface SpriteAnchorConfig {
+  readonly spriteAnchorX: number;          // Where on sprite to anchor (0-1, X axis)
+  readonly spriteAnchorY: number;          // Where on sprite to anchor (0-1, Y axis)
+  readonly useDefaultSpriteAnchor: boolean; // Whether to use asset-type defaults
+  readonly useBoundingBoxAnchor: boolean;   // Whether to apply anchor to bounding box instead of full sprite
+}
+
+/**
+ * Mutable sprite anchor configuration
+ */
+export interface MutableSpriteAnchorConfig {
+  spriteAnchorX: number;
+  spriteAnchorY: number;
+  useDefaultSpriteAnchor: boolean;
+  useBoundingBoxAnchor: boolean;
+}
+
+/**
+ * Grid anchor configuration  
+ */
+export interface GridAnchorConfig {
+  readonly gridAnchorPoint: GridAnchorPoint; // Predefined grid attachment point
+  readonly gridAnchorX: number;              // Custom grid X position (0-1, only used with CUSTOM)
+  readonly gridAnchorY: number;              // Custom grid Y position (0-1, only used with CUSTOM)  
+  readonly useDefaultGridAnchor: boolean;    // Whether to use asset-type defaults
+}
+
+/**
+ * Mutable grid anchor configuration
+ */
+export interface MutableGridAnchorConfig {
+  gridAnchorPoint: GridAnchorPoint;
+  gridAnchorX: number;
+  gridAnchorY: number;
+  useDefaultGridAnchor: boolean;
+}
+
+/**
  * Positioning settings for a specific direction (extends existing DirectionalSpriteSettings)
  */
 export interface DirectionalPositioningSettings {
@@ -190,19 +246,24 @@ export interface DirectionalPositioningSettings {
   readonly useAutoComputed: boolean;
   readonly manualVerticalBias: number;
   
+  // FIXED: Separate anchor systems
+  readonly gridAnchor: GridAnchorConfig;     // Where to attach to the grid
+  readonly spriteAnchor: SpriteAnchorConfig; // Where to anchor on the sprite
+  
   // Enhanced positioning for processed assets
   readonly horizontalOffset: number;                     // Fine-tune X positioning
   readonly verticalOffset: number;                       // Additional Y positioning  
   readonly scaleX: number;                              // Horizontal scale multiplier
   readonly scaleY: number;                              // Vertical scale multiplier
+  readonly keepProportions: boolean;                    // Whether to keep scaleX = scaleY
   readonly rotation: number;                            // Rotation in degrees
   readonly alpha: number;                               // Transparency (0-1)
   readonly tint: number;                                // Color tint (hex color)
   
-  // Advanced positioning
-  readonly anchorX: number;                             // Custom anchor point X (0-1)
-  readonly anchorY: number;                             // Custom anchor point Y (0-1)
-  readonly useCustomAnchor: boolean;                    // Whether to use custom anchor
+  // DEPRECATED: Remove these in favor of gridAnchor/spriteAnchor
+  readonly anchorX: number;                             // DEPRECATED: Use spriteAnchor.spriteAnchorX
+  readonly anchorY: number;                             // DEPRECATED: Use spriteAnchor.spriteAnchorY
+  readonly useCustomAnchor: boolean;                    // DEPRECATED: Use spriteAnchor.useDefaultSpriteAnchor
   readonly zIndex: number;                              // Additional Z-ordering within layer
   
   // Wall-specific positioning (from old system)
@@ -240,17 +301,26 @@ export interface MutableDirectionalPositioningSettings {
   autoComputedVerticalBias: number;
   useAutoComputed: boolean;
   manualVerticalBias: number;
+  
+  // FIXED: Separate anchor systems
+  gridAnchor: MutableGridAnchorConfig;     // Where to attach to the grid
+  spriteAnchor: MutableSpriteAnchorConfig; // Where to anchor on the sprite
+  
   horizontalOffset: number;
   verticalOffset: number;
   scaleX: number;
   scaleY: number;
+  keepProportions: boolean;
   rotation: number;
   alpha: number;
   tint: number;
-  anchorX: number;
-  anchorY: number;
-  useCustomAnchor: boolean;
+  
+  // DEPRECATED: Remove these in favor of gridAnchor/spriteAnchor
+  anchorX: number;                             // DEPRECATED: Use spriteAnchor.spriteAnchorX
+  anchorY: number;                             // DEPRECATED: Use spriteAnchor.spriteAnchorY  
+  useCustomAnchor: boolean;                    // DEPRECATED: Use spriteAnchor.useDefaultSpriteAnchor
   zIndex: number;
+  
   manualHorizontalOffset?: number;
   manualDiagonalNorthEastOffset?: number;
   manualDiagonalNorthWestOffset?: number;
@@ -514,7 +584,7 @@ export function generateProcessedAssetId(): ProcessedAssetId {
  */
 export function createDefaultDirectionalSettings(): MutableDirectionalPositioningSettings {
   return {
-    // Core positioning (compatible with existing system)
+    // Core positioning (same as existing system)
     invisibleMarginUp: 8,
     invisibleMarginDown: 8,
     invisibleMarginLeft: 8,
@@ -523,20 +593,46 @@ export function createDefaultDirectionalSettings(): MutableDirectionalPositionin
     useAutoComputed: true,
     manualVerticalBias: 36,
     
-    // Enhanced positioning for processed assets
+    // FIXED: Default anchor configurations
+    gridAnchor: {
+      gridAnchorPoint: GridAnchorPoint.CENTER,  // Default for tiles
+      gridAnchorX: 0.5,
+      gridAnchorY: 0.5,
+      useDefaultGridAnchor: true
+    },
+    spriteAnchor: {
+      spriteAnchorX: 0.5,     // Center horizontally
+      spriteAnchorY: 1.0,     // Bottom vertically (standard for isometric)
+      useDefaultSpriteAnchor: true,
+      useBoundingBoxAnchor: false
+    },
+    
+    // Enhanced positioning
     horizontalOffset: 0,
     verticalOffset: 0,
     scaleX: 1.0,
     scaleY: 1.0,
+    keepProportions: true,
     rotation: 0,
     alpha: 1.0,
     tint: 0xFFFFFF,
     
-    // Advanced positioning
+    // DEPRECATED: Keep for backward compatibility
     anchorX: 0.5,
     anchorY: 1.0,
     useCustomAnchor: false,
     zIndex: 0,
+    
+    // Wall-specific (optional)
+    manualHorizontalOffset: 0,
+    manualDiagonalNorthEastOffset: 0,
+    manualDiagonalNorthWestOffset: 0,
+    relativeAlongEdgeOffset: 0,
+    relativeTowardCenterOffset: 0,
+    relativeDiagonalAOffset: 0,
+    relativeDiagonalBOffset: 0,
+    useADivisionForNorthEast: true,
+    useSpriteTrimmingForWalls: false,
   };
 }
 
@@ -676,4 +772,99 @@ export function validateProcessedAsset(asset: MutableProcessedAssetDefinition): 
     isValid: errors.length === 0,
     errors,
   };
+}
+
+export function getDefaultGridAnchor(assetType: ProcessedAssetType, wallDirection?: IsometricDirection): MutableGridAnchorConfig {
+  switch (assetType) {
+    case ProcessedAssetType.TILE:
+      return {
+        gridAnchorPoint: GridAnchorPoint.CENTER,
+        gridAnchorX: 0.5,
+        gridAnchorY: 0.5,
+        useDefaultGridAnchor: true
+      };
+      
+    case ProcessedAssetType.WALL:
+      // Map wall direction to grid anchor point
+      const anchorPoint = wallDirection === IsometricDirection.NORTH ? GridAnchorPoint.NORTH_EDGE :
+                         wallDirection === IsometricDirection.EAST ? GridAnchorPoint.EAST_EDGE :
+                         wallDirection === IsometricDirection.SOUTH ? GridAnchorPoint.SOUTH_EDGE :
+                         wallDirection === IsometricDirection.WEST ? GridAnchorPoint.WEST_EDGE :
+                         GridAnchorPoint.SOUTH_EDGE; // Default fallback
+      
+      return {
+        gridAnchorPoint: anchorPoint,
+        gridAnchorX: 0.5, // Center along the edge
+        gridAnchorY: 0.5,
+        useDefaultGridAnchor: true
+      };
+      
+    default:
+      return {
+        gridAnchorPoint: GridAnchorPoint.CENTER,
+        gridAnchorX: 0.5,
+        gridAnchorY: 0.5,
+        useDefaultGridAnchor: true
+      };
+  }
+}
+
+export function getDefaultSpriteAnchor(assetType: ProcessedAssetType, wallDirection?: IsometricDirection): MutableSpriteAnchorConfig {
+  switch (assetType) {
+    case ProcessedAssetType.TILE:
+      return {
+        spriteAnchorX: 0.5, // Center horizontally
+        spriteAnchorY: 1.0, // Bottom vertically (standard for isometric tiles)
+        useDefaultSpriteAnchor: true,
+        useBoundingBoxAnchor: false
+      };
+      
+    case ProcessedAssetType.WALL:
+      // Use the same logic as getWallSpriteAnchor from isometricUtils
+      let anchorX = 0.5, anchorY = 1.0; // Default fallback
+      
+      switch (wallDirection) {
+        case IsometricDirection.NORTH:
+          anchorX = 0.5; anchorY = 1.0; // Center-bottom
+          break;
+        case IsometricDirection.EAST:
+          anchorX = 0.0; anchorY = 1.0; // Left-bottom
+          break;
+        case IsometricDirection.SOUTH:
+          anchorX = 0.5; anchorY = 0.0; // Center-top
+          break;
+        case IsometricDirection.WEST:
+          anchorX = 1.0; anchorY = 1.0; // Right-bottom
+          break;
+      }
+      
+      return {
+        spriteAnchorX: anchorX,
+        spriteAnchorY: anchorY,
+        useDefaultSpriteAnchor: true,
+        useBoundingBoxAnchor: false
+      };
+      
+    default:
+      return {
+        spriteAnchorX: 0.5,
+        spriteAnchorY: 1.0,
+        useDefaultSpriteAnchor: true,
+        useBoundingBoxAnchor: false
+      };
+  }
+}
+
+export function populateDefaultAnchors(
+  settings: MutableDirectionalPositioningSettings, 
+  assetType: ProcessedAssetType, 
+  wallDirection?: IsometricDirection
+): void {
+  settings.gridAnchor = getDefaultGridAnchor(assetType, wallDirection);
+  settings.spriteAnchor = getDefaultSpriteAnchor(assetType, wallDirection);
+  
+  // Also update deprecated fields for backward compatibility
+  settings.anchorX = settings.spriteAnchor.spriteAnchorX;
+  settings.anchorY = settings.spriteAnchor.spriteAnchorY;
+  settings.useCustomAnchor = !settings.spriteAnchor.useDefaultSpriteAnchor;
 } 

@@ -47,6 +47,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   // Asset instance cache for change detection
   private lastAssetInstancesHash: string = '';
   private lastAssetLibraryHash: string = '';
+  private lastTemporaryAssetHash: string = '';  // NEW: Track temporary asset changes
   
   // Last known states for change detection (SAME AS ISOMETRIC TILE RENDERER)
   private lastOffset = { x: 0, y: 0 };
@@ -103,10 +104,21 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   private getPositioningSettingsHash(): string {
     // Create hash of all positioning settings for change detection
     const snap = battlemapStore;
+    
+    // Include both asset library AND temporary asset
     const assetSettings = Object.values(snap.processedAssets.assetLibrary).map(asset => ({
       id: asset.id,
       behavior: asset.directionalBehavior
     }));
+    
+    // CRITICAL FIX: Include temporary asset in change detection
+    if (snap.processedAssets.temporaryAsset) {
+      assetSettings.push({
+        id: snap.processedAssets.temporaryAsset.id,
+        behavior: snap.processedAssets.temporaryAsset.directionalBehavior
+      });
+    }
+    
     return JSON.stringify(assetSettings);
   }
   
@@ -216,19 +228,32 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     const currentInstancesHash = JSON.stringify(snap.processedAssets.assetInstances);
     const currentLibraryHash = JSON.stringify(snap.processedAssets.assetLibrary);
     const currentPositioningHash = this.getPositioningSettingsHash();
+    const currentTemporaryAssetHash = snap.processedAssets.temporaryAsset 
+      ? JSON.stringify(snap.processedAssets.temporaryAsset)
+      : '';
     
     const hasAssetChanges = this.lastAssetInstancesHash !== currentInstancesHash || 
                            this.lastAssetLibraryHash !== currentLibraryHash;
     const hasPositioningChanges = this.lastPositioningSettingsHash !== currentPositioningHash;
+    const hasTemporaryAssetChanges = this.lastTemporaryAssetHash !== currentTemporaryAssetHash;
     
     // Check if we need to re-render
     if (hasAssetChanges || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || 
         hasZoomChanged || hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || 
         hasLayerVisibilityModeChanged || hasActiveZLayerChanged || hasPositioningChanges || 
-        hasVerticalBiasModeChanged || snap.view.wasd_moving) {
+        hasVerticalBiasModeChanged || hasTemporaryAssetChanges || snap.view.wasd_moving) {
+      
+      // Debug logging for temporary asset changes
+      if (hasTemporaryAssetChanges) {
+        console.log('[ProcessedAssetsRenderer] 🔄 Temporary asset changed - re-rendering for live preview');
+      }
+      if (hasPositioningChanges) {
+        console.log('[ProcessedAssetsRenderer] 🎯 Positioning settings changed - re-rendering');
+      }
       
       this.lastAssetInstancesHash = currentInstancesHash;
       this.lastAssetLibraryHash = currentLibraryHash;
+      this.lastTemporaryAssetHash = currentTemporaryAssetHash;
       this.updateLastKnownStates();
       
       // Clear and re-render all assets
@@ -246,6 +271,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     const snap = battlemapStore;
     const allInstances: RenderableAssetInstance[] = [];
     
+    // Get regular asset instances
     Object.values(snap.processedAssets.assetInstances).forEach(instance => {
       const asset = snap.processedAssets.assetLibrary[instance.assetId];
       if (!asset) return;
@@ -266,6 +292,39 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       });
     });
     
+    // CRITICAL FIX: Include temporary asset instances for live preview
+    if (snap.processedAssets.temporaryAsset) {
+      const temporaryAsset = snap.processedAssets.temporaryAsset;
+      
+      // Look for instances that reference the temporary asset
+      Object.values(snap.processedAssets.assetInstances).forEach(instance => {
+        if (instance.assetId === temporaryAsset.id) {
+          // Replace the asset data with the live temporary asset
+          const existingIndex = allInstances.findIndex(a => a.instanceId === instance.instanceId);
+          if (existingIndex !== -1) {
+            allInstances[existingIndex] = {
+              ...allInstances[existingIndex],
+              asset: temporaryAsset  // Use live temporary asset data
+            };
+          } else {
+            // Add new instance for temporary asset
+            const assetType = temporaryAsset.assetType || ProcessedAssetType.TILE;
+            allInstances.push({
+              instanceId: instance.instanceId,
+              assetId: instance.assetId,
+              asset: temporaryAsset,
+              position: instance.position,
+              zLevel: instance.zLevel,
+              direction: instance.direction,
+              snapPosition: instance.snapPosition,
+              wallDirection: instance.wallDirection,
+              assetType
+            });
+          }
+        }
+      });
+    }
+
     // Filter based on layer visibility mode
     switch (snap.view.layerVisibilityMode) {
       case LayerVisibilityMode.SHADOW:
@@ -356,15 +415,34 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         snap.view.zoomLevel
       );
       
+      // STEP 1: Get grid center position (as before)
       const { isoX, isoY } = gridToIsometric(
         assetInstance.position[0], 
         assetInstance.position[1], 
         isometricOffset.tileSize
       );
       
-      sprite.x = isometricOffset.offsetX + isoX;
+      // STEP 2: NEW - Apply Grid Anchor offset to move from center to desired attachment point
+      const directionalBehavior = assetInstance.asset.directionalBehavior;
+      let settings: MutableDirectionalPositioningSettings;
+      
+      if (directionalBehavior.useSharedSettings) {
+        settings = directionalBehavior.sharedSettings;
+      } else {
+        settings = directionalBehavior.directionalSettings[assetInstance.direction];
+      }
+      
+      // Calculate grid anchor offset
+      const gridAnchorOffset = this.calculateGridAnchorOffset(
+        settings.gridAnchor,
+        snap.view.gridDiamondWidth,
+        snap.view.zoomLevel
+      );
+      
+      // Apply base position + grid anchor offset
+      sprite.x = isometricOffset.offsetX + isoX + gridAnchorOffset.x;
       const zoomedDiamondHeight = isometricOffset.tileSize / 2;
-      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2);
+      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2) + gridAnchorOffset.y;
       
       // Apply Z offset
       const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
@@ -373,7 +451,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
       }
       
-      // Apply tile positioning
+      // Apply tile positioning (this handles sprite anchor and other adjustments)
       this.applyTilePositioning(sprite, assetInstance, snap);
       
       // Apply visual effects
@@ -421,15 +499,34 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
                            assetInstance.asset.wallConfiguration?.wallDirection || 
                            IsometricDirection.SOUTH;
       
-      const edgePosition = getWallEdgePosition(
-        assetInstance.position[0],
-        assetInstance.position[1],
-        wallDirection,
-        isometricOffset
+      // STEP 1: Get grid center position (same as tiles)
+      const { isoX, isoY } = gridToIsometric(
+        assetInstance.position[0], 
+        assetInstance.position[1], 
+        isometricOffset.tileSize
       );
       
-      sprite.x = edgePosition.x;
-      sprite.y = edgePosition.y;
+      // STEP 2: NEW - Apply Grid Anchor offset instead of hardcoded edge position
+      const directionalBehavior = assetInstance.asset.directionalBehavior;
+      let settings: MutableDirectionalPositioningSettings;
+      
+      if (directionalBehavior.useSharedSettings) {
+        settings = directionalBehavior.sharedSettings;
+      } else {
+        settings = directionalBehavior.directionalSettings[assetInstance.direction];
+      }
+      
+      // Calculate grid anchor offset (walls should use edge anchors by default)
+      const gridAnchorOffset = this.calculateGridAnchorOffset(
+        settings.gridAnchor,
+        snap.view.gridDiamondWidth,
+        snap.view.zoomLevel
+      );
+      
+      // Apply base position + grid anchor offset
+      sprite.x = isometricOffset.offsetX + isoX + gridAnchorOffset.x;
+      const zoomedDiamondHeight = isometricOffset.tileSize / 2;
+      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2) + gridAnchorOffset.y;
       
       // Apply Z offset
       const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
@@ -438,11 +535,10 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
       }
       
-      // Set wall anchor
-      const anchor = getWallSpriteAnchor(wallDirection);
-      sprite.anchor.set(anchor.x, anchor.y);
+      // STEP 3: Apply sprite anchor (this is handled in applyWallPositioning)
+      // Note: We don't set the anchor here anymore, applyWallPositioning handles it
       
-      // Apply wall positioning
+      // Apply wall positioning (this handles sprite anchor and other adjustments)
       this.applyWallPositioning(sprite, assetInstance, wallDirection, snap);
       
       // Apply visual effects
@@ -474,6 +570,92 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     }
   }
   
+  /**
+   * NEW: Calculate grid anchor offset based on GridAnchorPoint
+   * This determines WHERE on the diamond to attach the sprite
+   */
+  private calculateGridAnchorOffset(
+    gridAnchorConfig: any, 
+    gridDiamondWidth: number, 
+    zoomLevel: number
+  ): { x: number; y: number } {
+    const { gridAnchorPoint, gridAnchorX, gridAnchorY, useDefaultGridAnchor } = gridAnchorConfig;
+    
+    // If using default, return no offset (center position)
+    if (useDefaultGridAnchor && gridAnchorPoint === 'center') {
+      return { x: 0, y: 0 };
+    }
+    
+    const halfDiamondWidth = (gridDiamondWidth * zoomLevel) / 2;
+    const quarterDiamondHeight = (gridDiamondWidth * zoomLevel) / 4; // Diamond height is width/2, so quarter
+    
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    switch (gridAnchorPoint) {
+      case 'center':
+        // No offset - already at center
+        offsetX = 0;
+        offsetY = 0;
+        break;
+        
+      case 'north_edge':
+        offsetX = 0;
+        offsetY = -quarterDiamondHeight;
+        break;
+        
+      case 'east_edge':
+        offsetX = halfDiamondWidth;
+        offsetY = 0;
+        break;
+        
+      case 'south_edge':
+        offsetX = 0;
+        offsetY = quarterDiamondHeight;
+        break;
+        
+      case 'west_edge':
+        offsetX = -halfDiamondWidth;
+        offsetY = 0;
+        break;
+        
+      case 'north_corner':
+        offsetX = 0;
+        offsetY = -quarterDiamondHeight;
+        break;
+        
+      case 'east_corner':
+        offsetX = halfDiamondWidth;
+        offsetY = 0;
+        break;
+        
+      case 'south_corner':
+        offsetX = 0;
+        offsetY = quarterDiamondHeight;
+        break;
+        
+      case 'west_corner':
+        offsetX = -halfDiamondWidth;
+        offsetY = 0;
+        break;
+        
+      case 'custom':
+        // Use custom gridAnchorX/Y coordinates (0-1 range)
+        // Convert to diamond coordinate system
+        offsetX = (gridAnchorX - 0.5) * halfDiamondWidth * 2; // -1 to +1 range
+        offsetY = (gridAnchorY - 0.5) * quarterDiamondHeight * 2; // -1 to +1 range  
+        break;
+        
+      default:
+        console.warn(`[ProcessedAssetsRenderer] Unknown grid anchor point: ${gridAnchorPoint}`);
+        offsetX = 0;
+        offsetY = 0;
+    }
+    
+    console.log(`[ProcessedAssetsRenderer] Grid anchor offset for ${gridAnchorPoint}: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+    return { x: offsetX, y: offsetY };
+  }
+  
   private applyTilePositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, snap: any): void {
     const spriteScale = snap.view.spriteScale;
     const zoomLevel = snap.view.zoomLevel;
@@ -488,32 +670,64 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       settings = directionalBehavior.directionalSettings[assetInstance.direction];
     }
     
-    // Use auto-computed or manual vertical bias
-    const verticalBias = settings.useAutoComputed 
-      ? settings.autoComputedVerticalBias 
-      : settings.manualVerticalBias;
+    // FIXED: Apply sprite anchor (WHERE on sprite canvas to anchor)
+    // Use new sprite anchor system or fallback to deprecated fields
+    const spriteAnchorX = settings.spriteAnchor?.spriteAnchorX ?? settings.anchorX ?? 0.5;
+    const spriteAnchorY = settings.spriteAnchor?.spriteAnchorY ?? settings.anchorY ?? 1.0;
+    const useBoundingBoxAnchor = settings.spriteAnchor?.useBoundingBoxAnchor ?? false;
     
-    const finalInvisibleMargin = settings.invisibleMarginDown;
+    // Apply the sprite anchor (this determines WHERE on the sprite canvas)
+    sprite.anchor.set(spriteAnchorX, spriteAnchorY);
+    
+    // FIXED: If trimming is enabled, apply anchor to bounding box instead of full sprite
+    if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
+      // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
+      const bbox = settings.spriteBoundingBox;
+      
+      // Calculate where the current anchor point is within the bounding box
+      const anchorXInBbox = bbox.boundingX + (spriteAnchorX * bbox.boundingWidth);
+      const anchorYInBbox = bbox.boundingY + (spriteAnchorY * bbox.boundingHeight);
+      
+      // Convert back to full sprite coordinates (0-1 range)
+      const adjustedSpriteAnchorX = anchorXInBbox / bbox.originalWidth;
+      const adjustedSpriteAnchorY = anchorYInBbox / bbox.originalHeight;
+      
+      // Apply the adjusted anchor
+      sprite.anchor.set(adjustedSpriteAnchorX, adjustedSpriteAnchorY);
+      
+      console.log(`[ProcessedAssetsRenderer] Applied trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
+    }
+    
+    // Apply vertical positioning using manual vertical bias (tiles use manualVerticalBias now)
+    const verticalBias = settings.manualVerticalBias || 36;
+    
+    // FIXED: Apply all 4 directional invisible margins
+    const finalInvisibleMarginUp = settings.invisibleMarginUp || 0;
+    const finalInvisibleMarginDown = settings.invisibleMarginDown || 0;
+    const finalInvisibleMarginLeft = settings.invisibleMarginLeft || 0;
+    const finalInvisibleMarginRight = settings.invisibleMarginRight || 0;
     
     // Apply positioning based on snap position
     if (assetInstance.snapPosition === 'above') {
-      const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
+      const spriteScaledOffset = (verticalBias + finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
     } else {
-      const spriteScaledOffset = finalInvisibleMargin * spriteScale;
+      const spriteScaledOffset = (finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
     }
     
-    // Set anchor
-    if (settings.useCustomAnchor) {
-      sprite.anchor.set(settings.anchorX, settings.anchorY);
-    } else {
-      sprite.anchor.set(0.5, 1.0);
-    }
+    // Apply horizontal margins
+    const horizontalMarginOffset = (finalInvisibleMarginRight - finalInvisibleMarginLeft) * spriteScale;
+    sprite.x += horizontalMarginOffset * zoomLevel;
     
     // Apply scale
     const finalScale = spriteScale * zoomLevel;
-    sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
+    if (settings.keepProportions && settings.scaleX !== undefined) {
+      // If keeping proportions, use scaleX for both dimensions
+      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleX);
+    } else {
+      sprite.scale.set(finalScale * (settings.scaleX || 1.0), finalScale * (settings.scaleY || 1.0));
+    }
     
     // Apply additional transformations
     sprite.rotation = (settings.rotation || 0) * (Math.PI / 180);
@@ -539,24 +753,57 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       settings = directionalBehavior.directionalSettings[assetInstance.direction];
     }
     
-    // Apply sprite trimming if enabled
-    if (settings.useSpriteTrimmingForWalls && settings.spriteBoundingBox) {
-      this.applySpriteTrimming(sprite, settings.spriteBoundingBox, wallDirection);
+    // FIXED: Apply sprite anchor (WHERE on sprite canvas to anchor)
+    // Use new sprite anchor system or fallback to deprecated fields
+    const spriteAnchorX = settings.spriteAnchor?.spriteAnchorX ?? settings.anchorX ?? getWallSpriteAnchor(wallDirection).x;
+    const spriteAnchorY = settings.spriteAnchor?.spriteAnchorY ?? settings.anchorY ?? getWallSpriteAnchor(wallDirection).y;
+    const useBoundingBoxAnchor = settings.spriteAnchor?.useBoundingBoxAnchor ?? false;
+    
+    // Apply the sprite anchor (this determines WHERE on the sprite canvas)
+    sprite.anchor.set(spriteAnchorX, spriteAnchorY);
+    
+    // FIXED: If trimming is enabled, apply anchor to bounding box instead of full sprite
+    if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
+      // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
+      const bbox = settings.spriteBoundingBox;
+      
+      // Calculate where the current anchor point is within the bounding box
+      const anchorXInBbox = bbox.boundingX + (spriteAnchorX * bbox.boundingWidth);
+      const anchorYInBbox = bbox.boundingY + (spriteAnchorY * bbox.boundingHeight);
+      
+      // Convert back to full sprite coordinates (0-1 range)
+      const adjustedSpriteAnchorX = anchorXInBbox / bbox.originalWidth;
+      const adjustedSpriteAnchorY = anchorYInBbox / bbox.originalHeight;
+      
+      // Apply the adjusted anchor
+      sprite.anchor.set(adjustedSpriteAnchorX, adjustedSpriteAnchorY);
+      
+      console.log(`[ProcessedAssetsRenderer] Applied wall trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
     }
     
-    // Apply vertical positioning
-    const verticalBias = settings.manualVerticalBias || 0;
-    const finalInvisibleMargin = settings.invisibleMarginDown || 0;
+    // Apply vertical positioning using manual vertical bias only (walls don't use auto-computed)
+    const verticalBias = settings.manualVerticalBias || 36;
     
+    // FIXED: Apply all 4 directional invisible margins for walls
+    const finalInvisibleMarginUp = settings.invisibleMarginUp || 0;
+    const finalInvisibleMarginDown = settings.invisibleMarginDown || 0;
+    const finalInvisibleMarginLeft = settings.invisibleMarginLeft || 0;
+    const finalInvisibleMarginRight = settings.invisibleMarginRight || 0;
+    
+    // Apply positioning based on snap position with proper scaling
     if (assetInstance.snapPosition === 'above') {
-      const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
+      const spriteScaledOffset = (verticalBias + finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
     } else {
-      const spriteScaledOffset = finalInvisibleMargin * spriteScale;
+      const spriteScaledOffset = (finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
       sprite.y += spriteScaledOffset * zoomLevel;
     }
     
-    // Apply horizontal offset
+    // Apply horizontal margins
+    const horizontalMarginOffset = (finalInvisibleMarginRight - finalInvisibleMarginLeft) * spriteScale;
+    sprite.x += horizontalMarginOffset * zoomLevel;
+    
+    // Apply manual horizontal offset
     const horizontalOffset = settings.manualHorizontalOffset || 0;
     if (horizontalOffset !== 0) {
       const spriteScaledHorizontalOffset = horizontalOffset * spriteScale;
@@ -571,34 +818,12 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     
     // Apply scale
     const finalScale = spriteScale * zoomLevel;
-    sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
-  }
-  
-  private applySpriteTrimming(sprite: Sprite, boundingBox: any, wallDirection: IsometricDirection): void {
-    const directionAnchor = getWallSpriteAnchor(wallDirection);
-    
-    let bboxAnchorX: number, bboxAnchorY: number;
-    
-    if (directionAnchor.x === 0.0) {
-      bboxAnchorX = boundingBox.boundingX;
-    } else if (directionAnchor.x === 1.0) {
-      bboxAnchorX = boundingBox.boundingX + boundingBox.boundingWidth;
+    if (settings.keepProportions && settings.scaleX !== undefined) {
+      // If keeping proportions, use scaleX for both dimensions
+      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleX);
     } else {
-      bboxAnchorX = boundingBox.boundingX + (boundingBox.boundingWidth * directionAnchor.x);
+      sprite.scale.set(finalScale * (settings.scaleX || 1.0), finalScale * (settings.scaleY || 1.0));
     }
-    
-    if (directionAnchor.y === 0.0) {
-      bboxAnchorY = boundingBox.boundingY;
-    } else if (directionAnchor.y === 1.0) {
-      bboxAnchorY = boundingBox.boundingY + boundingBox.boundingHeight;
-    } else {
-      bboxAnchorY = boundingBox.boundingY + (boundingBox.boundingHeight * directionAnchor.y);
-    }
-    
-    const spriteAnchorX = bboxAnchorX / boundingBox.originalWidth;
-    const spriteAnchorY = bboxAnchorY / boundingBox.originalHeight;
-    
-    sprite.anchor.set(spriteAnchorX, spriteAnchorY);
   }
   
   private applyDiagonalOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, spriteScale: number, zoomLevel: number): void {
