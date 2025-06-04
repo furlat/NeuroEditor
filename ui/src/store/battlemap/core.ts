@@ -7,6 +7,14 @@ import { IsometricDirection, SpriteCategory } from '../../game/managers/Isometri
 // Import values from local definitions in other store modules to avoid circular dependencies
 import { VerticalBiasComputationMode } from './isometricEditor';
 import { LayerVisibilityMode, DEFAULT_Z_LAYER_SETTINGS } from './zlayer';
+import { DeepReadonly } from '../../types/common';
+import { 
+  MutableProcessedAssetDefinition, 
+  TemporaryAssetState, 
+  AssetPreviewConfiguration,
+  ProcessedAssetId,
+  AssetCategory
+} from '../../types/processed_assets';
 
 // Local type definition for BattlemapStoreState to avoid circular dependency
 interface BattlemapStoreState {
@@ -48,6 +56,79 @@ interface BattlemapStoreState {
     isEditorVisible: boolean;
     selectedTileType: TileType;
     isometricEditor: any; // Using any to avoid complex type definition
+  };
+  // *** NEW: PROCESSED ASSETS SYSTEM ***
+  processedAssets: {
+    // Asset mode toggle
+    isProcessedAssetMode: boolean;          // Toggle between old battlemap tiles and new processed assets
+    
+    // Asset library (UUID-indexed)
+    assetLibrary: Record<ProcessedAssetId, MutableProcessedAssetDefinition>;
+    
+    // Temporary asset for creation/editing interface
+    temporaryAsset: TemporaryAssetState | null;
+    
+    // Asset instances placed on the grid (UUID-indexed)
+    assetInstances: Record<string, {       // Key: "x,y,z,instanceId"
+      instanceId: string;                  // Unique instance identifier
+      assetId: ProcessedAssetId;           // Reference to asset in library
+      position: readonly [number, number]; // Grid position
+      zLevel: number;                      // Z layer
+      direction: IsometricDirection;       // Asset orientation
+      snapPosition: 'above' | 'below';    // Snap positioning
+    }>;
+    
+    // Asset creation and editing state
+    assetCreation: {
+      isCreating: boolean;                 // Whether asset creation UI is open
+      isEditing: boolean;                  // Whether editing existing asset
+      currentStep: 'source' | 'processing' | 'directional' | 'gameplay' | 'preview'; // Current step in creation
+      selectedSourceImage: string | null; // Currently selected source image path
+      selectedCategory: AssetCategory;     // Currently selected asset category
+      selectedSubcategory: string;         // Currently selected subcategory
+    };
+    
+    // Asset preview system
+    assetPreview: {
+      isPreviewOpen: boolean;              // Whether preview window is open
+      configuration: AssetPreviewConfiguration;
+      cameraState: {                       // Independent camera state for preview
+        offset: { x: number; y: number };
+        zoomLevel: number;
+      };
+    };
+    
+    // Asset grid configuration (for processed asset mode)
+    assetGrid: {
+      width: number;                       // Grid width for asset mode
+      height: number;                      // Grid height for asset mode
+      centerOffset: { x: number; y: number }; // Offset to center the grid view
+    };
+    
+    // Asset placement controls
+    assetPlacement: {
+      selectedAssetId: ProcessedAssetId | null; // Currently selected asset for placement
+      placementDirection: IsometricDirection;   // Direction for new placements
+      placementSnapPosition: 'above' | 'below'; // Snap position for new placements
+      brushSize: number;                        // Brush size for multi-placement
+    };
+    
+    // Asset organization and search
+    assetOrganization: {
+      searchQuery: string;                 // Search text
+      categoryFilter: AssetCategory | 'all'; // Category filter
+      subcategoryFilter: string | 'all';  // Subcategory filter
+      tagFilters: string[];                // Active tag filters
+      sortBy: 'name' | 'category' | 'dateCreated' | 'dateModified'; // Sort criteria
+      sortOrder: 'asc' | 'desc';           // Sort direction
+    };
+    
+    // Asset validation and status
+    assetValidation: {
+      lastValidationRun: string | null;    // ISO timestamp of last validation
+      hasValidationErrors: boolean;        // Whether any assets have validation errors
+      invalidAssetIds: ProcessedAssetId[]; // List of assets with validation errors
+    };
   };
   loading: boolean;
   error: string | null;
@@ -111,6 +192,60 @@ export const battlemapStore = proxy<BattlemapStoreState>({
       wallPositioningSettings: {},
       lastSelectedBlockSprite: null,
       lastSelectedWallSprite: null,
+    },
+  },
+  processedAssets: {
+    isProcessedAssetMode: false,
+    assetLibrary: {},
+    temporaryAsset: null,
+    assetInstances: {},
+    assetCreation: {
+      isCreating: false,
+      isEditing: false,
+      currentStep: 'source',
+      selectedSourceImage: null,
+      selectedCategory: AssetCategory.TILE,
+      selectedSubcategory: 'floor',
+    },
+    assetPreview: {
+      isPreviewOpen: false,
+      configuration: {
+        gridSize: { width: 3, height: 3 },
+        centerCellPosition: [1, 1] as const,
+        cameraOffset: { x: 0, y: 0 },
+        zoomLevel: 1.0,
+        showGridAnchors: false,
+        showSpriteAnchors: false,
+        showBoundingBoxAnchors: false,
+      },
+      cameraState: {
+        offset: { x: 0, y: 0 },
+        zoomLevel: 1.0,
+      },
+    },
+    assetGrid: {
+      width: 3, // Default smaller grid for asset mode
+      height: 3,
+      centerOffset: { x: 0, y: 0 },
+    },
+    assetPlacement: {
+      selectedAssetId: null,
+      placementDirection: IsometricDirection.SOUTH,
+      placementSnapPosition: 'above',
+      brushSize: 1,
+    },
+    assetOrganization: {
+      searchQuery: '',
+      categoryFilter: 'all',
+      subcategoryFilter: 'all',
+      tagFilters: [],
+      sortBy: 'name',
+      sortOrder: 'asc',
+    },
+    assetValidation: {
+      lastValidationRun: null,
+      hasValidationErrors: false,
+      invalidAssetIds: [],
     },
   },
   loading: false,

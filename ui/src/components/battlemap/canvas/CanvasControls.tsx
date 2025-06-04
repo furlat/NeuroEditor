@@ -11,10 +11,11 @@ import EditIcon from '@mui/icons-material/Edit';
 import EditOffIcon from '@mui/icons-material/EditOff';
 import ImageIcon from '@mui/icons-material/Image';
 import HideImageIcon from '@mui/icons-material/HideImage';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { useMapControls, useTileEditor } from '../../../hooks/battlemap';
 import IsometricSpriteSelector from './IsometricSpriteSelector';
 import IsometricConfigurationPanel from './IsometricConfigurationPanel';
-import { battlemapStore } from '../../../store';
+import { battlemapStore, battlemapActions } from '../../../store';
 import { useSnapshot } from 'valtio';
 import SettingsButton from '../../settings/SettingsButton';
 import ZLayerSelector from './ZLayerSelector';
@@ -47,6 +48,9 @@ export const CanvasControls: React.FC = () => {
   // This avoids re-renders when offset changes during WASD movement
   const hoveredCellSnap = useSnapshot(battlemapStore.view.hoveredCell);
   
+  // Subscribe to processed asset mode for the toggle
+  const processedAssetModeSnap = useSnapshot(battlemapStore.processedAssets);
+  
   const handleEditToggle = useCallback(() => {
     console.log('[CanvasControls] Edit button clicked, current state:', { isEditing });
     
@@ -60,6 +64,16 @@ export const CanvasControls: React.FC = () => {
     
     console.log('[CanvasControls] After toggle, new editing state will be:', { isEditing: !isEditing });
   }, [isEditing, toggleEditing, toggleEditorVisibility]);
+
+  const handleModeToggle = useCallback(() => {
+    console.log('[CanvasControls] Mode toggle clicked, current mode:', { 
+      isProcessedAssetMode: processedAssetModeSnap.isProcessedAssetMode 
+    });
+    
+    battlemapActions.processedAssets.mode.toggleProcessedAssetMode();
+    
+    console.log('[CanvasControls] Mode toggle completed');
+  }, [processedAssetModeSnap.isProcessedAssetMode]);
 
   const formatPosition = (x: number, y: number): string => {
     if (x < 0 || y < 0) return 'Outside';
@@ -100,6 +114,28 @@ export const CanvasControls: React.FC = () => {
           </Typography>
         </Box>
         
+        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
+
+        {/* Mode Toggle - NEW */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title={processedAssetModeSnap.isProcessedAssetMode ? "Switch to Battlemap Tiles Mode" : "Switch to Processed Assets Mode"}>
+            <IconButton
+              onClick={handleModeToggle}
+              disabled={isLocked}
+              sx={{ 
+                color: processedAssetModeSnap.isProcessedAssetMode ? '#9c27b0' : '#3f51b5',
+                backgroundColor: processedAssetModeSnap.isProcessedAssetMode ? 'rgba(156, 39, 176, 0.1)' : 'rgba(63, 81, 181, 0.1)'
+              }}
+            >
+              <SwapHorizIcon />
+            </IconButton>
+          </Tooltip>
+          
+          <Typography variant="body2" sx={{ opacity: 0.8, fontSize: '11px', minWidth: '45px', textAlign: 'center' }}>
+            {processedAssetModeSnap.isProcessedAssetMode ? '🎨 Assets' : '🧱 Tiles'}
+          </Typography>
+        </Box>
+
         <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
 
         {/* View Controls */}

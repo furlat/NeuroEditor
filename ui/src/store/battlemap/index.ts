@@ -5,6 +5,8 @@ import { battlemapStore, coreActions } from './core';
 import { zLayerActions, LayerVisibilityMode, Z_LAYER_CONFIG, DEFAULT_Z_LAYER_SETTINGS } from './zlayer';
 import { isometricEditorActions, VerticalBiasComputationMode, DirectionalSettings } from './isometricEditor';
 import { wallActions } from './walls';
+import { processedAssetsActions } from './processedAssets';
+
 
 // Type imports
 import type { DeepReadonly } from '../../types/common';
@@ -32,6 +34,17 @@ export type {
   GridSnapshot 
 } from '../../types/battlemap_types';
 
+// Re-export processed assets types
+export type {
+  ProcessedAssetId,
+  AssetCategory,
+  MutableProcessedAssetDefinition,
+  TemporaryAssetState,
+  AssetPreviewConfiguration,
+  ProcessingOperation,
+  ProcessedAssetDefinition
+} from '../../types/processed_assets';
+
 // Combined actions object for backward compatibility
 export const battlemapActions = {
   // Core actions
@@ -45,6 +58,9 @@ export const battlemapActions = {
   
   // Wall actions
   ...wallActions,
+  
+  // *** NEW: Processed assets actions ***
+  processedAssets: processedAssetsActions,
   
   // Special handling for vertical bias computation mode
   // (needs to trigger recalculation in isometric editor)
