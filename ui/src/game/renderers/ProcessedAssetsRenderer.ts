@@ -1,15 +1,18 @@
-import { Graphics, Sprite, Container } from 'pixi.js';
-import { battlemapStore, battlemapActions, LayerVisibilityMode } from '../../store';
+import { Graphics, Sprite, Container, Texture } from 'pixi.js';
+import { getCanvasBoundingBox } from 'pixi.js';
+import { battlemapStore, battlemapActions, LayerVisibilityMode, Z_LAYER_CONFIG } from '../../store';
 import { AbstractRenderer } from './BaseRenderer';
 import { subscribe } from 'valtio';
 import { LayerName } from '../BattlemapEngine';
 import { IsometricRenderingUtils } from './utils/IsometricRenderingUtils';
 import { isometricSpriteManager, IsometricDirection } from '../managers/IsometricSpriteManager';
-import { calculateIsometricGridOffset, gridToIsometric } from '../../utils/isometricUtils';
+import { calculateIsometricGridOffset, gridToIsometric, getWallEdgePosition, getWallSpriteAnchor } from '../../utils/isometricUtils';
 import { ENTITY_PANEL_WIDTH } from '../../constants/layout';
 import {
   ProcessedAssetId,
-  MutableProcessedAssetDefinition
+  MutableProcessedAssetDefinition,
+  ProcessedAssetType,
+  MutableDirectionalPositioningSettings
 } from '../../types/processed_assets';
 
 // Interface for renderable asset instances
@@ -21,11 +24,13 @@ interface RenderableAssetInstance {
   zLevel: number;
   direction: IsometricDirection;
   snapPosition: 'above' | 'below';
+  wallDirection?: IsometricDirection;  // For wall assets
+  assetType: ProcessedAssetType;       // Determines rendering path
 }
 
 /**
- * ProcessedAssetsRenderer - Clean, focused processed asset rendering for tile editor
- * Follows the same patterns as IsometricTileRenderer with proper subscription management
+ * ProcessedAssetsRenderer - Unified asset rendering supporting tiles, walls, and future asset types
+ * Maintains all sophisticated positioning logic from the original system
  */
 export class ProcessedAssetsRenderer extends AbstractRenderer {
   get layerName(): LayerName { return 'tiles'; }
@@ -53,6 +58,13 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   private lastGridLayerVisibility: { [zLayer: number]: boolean } = { 0: true, 1: true, 2: true };
   private lastLayerVisibilityMode: LayerVisibilityMode = LayerVisibilityMode.NORMAL;
   private lastActiveZLayer = 0;
+  private lastPositioningSettingsHash: string = '';
+  private lastVerticalBiasMode: string = '';
+  
+  // Bounding box cache (for sprite trimming)
+  private boundingBoxCache: Map<string, any> = new Map();
+  private isCurrentlyRendering: boolean = false;
+  private deferredStoreUpdates: Array<() => void> = [];
 
   initialize(engine: any): void {
     super.initialize(engine);
@@ -64,12 +76,12 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     this.setupSubscriptions();
     this.initializeSprites();
     
-    // Initialize last states (SAME AS ISOMETRIC TILE RENDERER)
+    // Initialize last states
     this.updateLastKnownStates();
   }
   
   /**
-   * Update last known states (SAME AS ISOMETRIC TILE RENDERER)
+   * Update last known states
    */
   private updateLastKnownStates(): void {
     this.lastOffset = { 
@@ -84,6 +96,18 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     this.lastGridLayerVisibility = { ...battlemapStore.view.gridLayerVisibility };
     this.lastLayerVisibilityMode = battlemapStore.view.layerVisibilityMode;
     this.lastActiveZLayer = battlemapStore.view.activeZLayer;
+    this.lastPositioningSettingsHash = this.getPositioningSettingsHash();
+    this.lastVerticalBiasMode = battlemapStore.view.verticalBiasComputationMode;
+  }
+  
+  private getPositioningSettingsHash(): string {
+    // Create hash of all positioning settings for change detection
+    const snap = battlemapStore;
+    const assetSettings = Object.values(snap.processedAssets.assetLibrary).map(asset => ({
+      id: asset.id,
+      behavior: asset.directionalBehavior
+    }));
+    return JSON.stringify(assetSettings);
   }
   
   private async initializeSprites(): Promise<void> {
@@ -99,7 +123,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   }
   
   private setupSubscriptions(): void {
-    // Subscribe to the root store for broader reactivity (same pattern as GridRenderer)
+    // Subscribe to the root store for broader reactivity
     this.addSubscription(subscribe(battlemapStore, () => {
       // Only render if in processed asset mode
       if (!battlemapStore.processedAssets.isProcessedAssetMode) {
@@ -108,22 +132,53 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       this.render();
     }));
     
-    // Manual render trigger (same pattern as GridRenderer)
+    // Manual render trigger
     (window as any).__forceAssetsRender = () => {
       this.render();
     };
   }
   
   render(): void {
-    this.incrementRenderCount();
-    this.renderAssets();
-    this.logRenderSummary();
+    if (!this.engine || !this.engine.app) {
+      return;
+    }
+    
+    // Prevent recursive rendering
+    if (this.isCurrentlyRendering) {
+      console.warn('[ProcessedAssetsRenderer] Skipping render - already rendering');
+      return;
+    }
+    
+    this.isCurrentlyRendering = true;
+    
+    try {
+      this.incrementRenderCount();
+      this.renderAssets();
+      this.logRenderSummary();
+    } finally {
+      this.isCurrentlyRendering = false;
+      
+      // Process deferred updates
+      if (this.deferredStoreUpdates.length > 0) {
+        setTimeout(() => {
+          const updates = [...this.deferredStoreUpdates];
+          this.deferredStoreUpdates = [];
+          updates.forEach(update => {
+            try {
+              update();
+            } catch (error) {
+              console.error('[ProcessedAssetsRenderer] Error in deferred store update:', error);
+            }
+          });
+        }, 0);
+      }
+    }
   }
   
   private renderAssets(): void {
     if (!this.isEngineReady()) return;
     
-    // Only render if in processed asset mode (same pattern as GridRenderer)
+    // Only render if in processed asset mode
     if (!battlemapStore.processedAssets.isProcessedAssetMode) {
       this.clearAllAssets();
       this.container.visible = false;
@@ -132,54 +187,49 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     
     this.container.visible = true;
     
-    // Check if tiles are visible (same pattern as GridRenderer)
+    // Check if tiles are visible
     const snap = battlemapStore;
     if (!snap.controls.isTilesVisible) {
       this.clearAllAssets();
+      this.updateLastKnownStates();
       return;
     }
     
-    // COMPLETE CHANGE DETECTION (SAME AS ISOMETRIC TILE RENDERER)
-    const currentTileVisibility = snap.controls.isTilesVisible;
-    const hasVisibilityChanged = this.lastTileVisibility !== currentTileVisibility;
+    // Complete change detection
+    const hasVisibilityChanged = this.lastTileVisibility !== snap.controls.isTilesVisible;
     const hasZLevelChanged = this.lastShowZLevel !== snap.view.showZLevel;
-    
-    // Check for various changes that require re-rendering (SAME AS ISOMETRIC TILE RENDERER)
     const hasPositionChanged = 
       this.lastOffset.x !== snap.view.offset.x || 
       this.lastOffset.y !== snap.view.offset.y;
-    
     const hasGridDiamondWidthChanged = this.lastGridDiamondWidth !== snap.view.gridDiamondWidth;
     const hasSpriteScaleChanged = this.lastSpriteScale !== snap.view.spriteScale;
     const hasZoomChanged = this.lastZoomLevel !== snap.view.zoomLevel;
-    
-    // Check for grid layer visibility changes (SAME AS ISOMETRIC TILE RENDERER)
     const hasGridLayerVisibilityChanged = 
       this.lastGridLayerVisibility[0] !== snap.view.gridLayerVisibility[0] ||
       this.lastGridLayerVisibility[1] !== snap.view.gridLayerVisibility[1] ||
       this.lastGridLayerVisibility[2] !== snap.view.gridLayerVisibility[2];
-    
-    // Check for layer visibility mode change
     const hasLayerVisibilityModeChanged = this.lastLayerVisibilityMode !== snap.view.layerVisibilityMode;
-    
-    // Check for active layer change
     const hasActiveZLayerChanged = this.lastActiveZLayer !== snap.view.activeZLayer;
+    const hasVerticalBiasModeChanged = this.lastVerticalBiasMode !== snap.view.verticalBiasComputationMode;
     
     // Check for asset changes
     const currentInstancesHash = JSON.stringify(snap.processedAssets.assetInstances);
     const currentLibraryHash = JSON.stringify(snap.processedAssets.assetLibrary);
+    const currentPositioningHash = this.getPositioningSettingsHash();
     
     const hasAssetChanges = this.lastAssetInstancesHash !== currentInstancesHash || 
                            this.lastAssetLibraryHash !== currentLibraryHash;
+    const hasPositioningChanges = this.lastPositioningSettingsHash !== currentPositioningHash;
     
-    // CRITICAL: Check if we need to re-render (INCLUDES WASD MOVEMENT)
-    if (hasAssetChanges || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || hasZoomChanged ||
-        hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || hasLayerVisibilityModeChanged ||
-        hasActiveZLayerChanged || snap.view.wasd_moving) {
+    // Check if we need to re-render
+    if (hasAssetChanges || hasPositionChanged || hasGridDiamondWidthChanged || hasSpriteScaleChanged || 
+        hasZoomChanged || hasVisibilityChanged || hasZLevelChanged || hasGridLayerVisibilityChanged || 
+        hasLayerVisibilityModeChanged || hasActiveZLayerChanged || hasPositioningChanges || 
+        hasVerticalBiasModeChanged || snap.view.wasd_moving) {
       
       this.lastAssetInstancesHash = currentInstancesHash;
       this.lastAssetLibraryHash = currentLibraryHash;
-      this.updateLastKnownStates(); // Update all last known states
+      this.updateLastKnownStates();
       
       // Clear and re-render all assets
       this.clearAllAssets();
@@ -200,6 +250,9 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       const asset = snap.processedAssets.assetLibrary[instance.assetId];
       if (!asset) return;
       
+      // Determine asset type from the asset definition
+      const assetType = asset.assetType || ProcessedAssetType.TILE; // Default to tile for backward compatibility
+      
       allInstances.push({
         instanceId: instance.instanceId,
         assetId: instance.assetId,
@@ -207,18 +260,18 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         position: instance.position,
         zLevel: instance.zLevel,
         direction: instance.direction,
-        snapPosition: instance.snapPosition
+        snapPosition: instance.snapPosition,
+        wallDirection: instance.wallDirection,
+        assetType
       });
     });
     
-    // Filter based on layer visibility mode (SAME AS ISOMETRIC TILE RENDERER)
+    // Filter based on layer visibility mode
     switch (snap.view.layerVisibilityMode) {
       case LayerVisibilityMode.SHADOW:
       case LayerVisibilityMode.NORMAL:
-        // SHADOW and NORMAL modes: Show ALL assets (grid visibility doesn't affect assets)
         return allInstances;
       case LayerVisibilityMode.INVISIBLE:
-        // INVISIBLE mode: Show ONLY active layer assets
         return allInstances.filter(instance => instance.zLevel === snap.view.activeZLayer);
       default:
         return allInstances;
@@ -227,18 +280,31 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   
   private sortAssetsByDepth(assets: RenderableAssetInstance[]): RenderableAssetInstance[] {
     return [...assets].sort((a, b) => {
-      // First sort by Z level (lower Z renders first)
+      // First sort by Z level
       if (a.zLevel !== b.zLevel) {
         return a.zLevel - b.zLevel;
       }
       
-      // Then sort by isometric depth (Y then X for proper back-to-front rendering)
+      // Then sort by isometric depth
       if (a.position[1] !== b.position[1]) {
         return a.position[1] - b.position[1];
       }
       
       if (a.position[0] !== b.position[0]) {
         return a.position[0] - b.position[0];
+      }
+      
+      // If position is the same, walls render after tiles
+      if (a.assetType !== b.assetType) {
+        if (a.assetType === ProcessedAssetType.TILE && b.assetType === ProcessedAssetType.WALL) return -1;
+        if (a.assetType === ProcessedAssetType.WALL && b.assetType === ProcessedAssetType.TILE) return 1;
+      }
+      
+      // For walls at same position, sort by edge direction
+      if (a.assetType === ProcessedAssetType.WALL && b.assetType === ProcessedAssetType.WALL) {
+        const wallDirA = a.wallDirection || IsometricDirection.SOUTH;
+        const wallDirB = b.wallDirection || IsometricDirection.SOUTH;
+        return wallDirA - wallDirB;
       }
       
       return 0;
@@ -250,34 +316,21 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     const sortedAssets = this.sortAssetsByDepth(visibleAssets);
     
     sortedAssets.forEach(assetInstance => {
-      this.renderSingleAsset(assetInstance);
+      if (assetInstance.assetType === ProcessedAssetType.WALL) {
+        this.renderSingleWallAsset(assetInstance);
+      } else {
+        this.renderSingleTileAsset(assetInstance);
+      }
     });
     
     console.log('[ProcessedAssetsRenderer] Rendered', sortedAssets.length, 'assets with textures');
   }
   
-  private renderSingleAsset(assetInstance: RenderableAssetInstance): void {
+  private renderSingleTileAsset(assetInstance: RenderableAssetInstance): void {
     try {
-      // Extract sprite name from asset's source path
-      const sourceImagePath = assetInstance.asset.sourceProcessing.sourceImagePath;
-      const pathParts = sourceImagePath.split('/');
-      const fileName = pathParts[pathParts.length - 1];
-      const spriteName = fileName.replace('.png', '');
+      const texture = this.getAssetTexture(assetInstance);
+      if (!texture) return;
       
-      // Check if sprite is loaded
-      if (!isometricSpriteManager.isSpriteLoaded(spriteName)) {
-        console.warn(`[ProcessedAssetsRenderer] Sprite not loaded: ${spriteName}`);
-        return;
-      }
-      
-      // Get texture for the direction
-      const texture = isometricSpriteManager.getSpriteTexture(spriteName, assetInstance.direction);
-      if (!texture) {
-        console.warn(`[ProcessedAssetsRenderer] No texture found for ${spriteName} direction ${assetInstance.direction}`);
-        return;
-      }
-      
-      // Get or create sprite
       const instanceKey = `${assetInstance.assetId}_${assetInstance.instanceId}`;
       let sprite = this.activeAssetSprites.get(instanceKey);
       
@@ -287,10 +340,9 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         this.assetsContainer.addChild(sprite);
       }
       
-      // Update sprite texture
       sprite.texture = texture;
       
-      // Calculate position using SAME SYSTEM AS ISOMETRIC TILE RENDERER
+      // Calculate position
       const snap = battlemapStore;
       const isometricOffset = calculateIsometricGridOffset(
         this.engine?.containerSize?.width || 0,
@@ -301,126 +353,375 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         snap.view.offset.x,
         snap.view.offset.y,
         ENTITY_PANEL_WIDTH,
-        snap.view.zoomLevel // Include zoom level (CRITICAL)
+        snap.view.zoomLevel
       );
       
-      // Convert grid position to isometric coordinates using the same system as grid
       const { isoX, isoY } = gridToIsometric(
         assetInstance.position[0], 
         assetInstance.position[1], 
-        isometricOffset.tileSize // Use tileSize which includes zoom
+        isometricOffset.tileSize
       );
       
-      // Position sprite using the same coordinate system as the tiles
       sprite.x = isometricOffset.offsetX + isoX;
+      const zoomedDiamondHeight = isometricOffset.tileSize / 2;
+      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2);
       
-      // For Y positioning, align with the actual grid diamond bottom (SAME AS TILE RENDERER)
-      const zoomedDiamondHeight = isometricOffset.tileSize / 2; // tileSize already includes zoom, 2:1 aspect ratio
-      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2); // Align to bottom of diamond
-      
-      // Calculate Z offset (SAME PATTERN AS TILE RENDERER)
+      // Apply Z offset
       const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
       const zLayerConfig = zLayerConfigs[assetInstance.zLevel];
       if (zLayerConfig) {
-        sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel; // Apply Z offset with zoom scaling
+        sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
       }
       
-      // Apply snap position offset (SAME AS TILE RENDERER)
-      if (assetInstance.snapPosition === 'below') {
-        sprite.y += 50 * snap.view.zoomLevel; // Below offset scaled by zoom
-      }
+      // Apply tile positioning
+      this.applyTilePositioning(sprite, assetInstance, snap);
       
-      // Apply asset transformations
-      this.applyAssetTransformations(sprite, assetInstance);
-      
-      // Apply layer visibility effects (SAME AS ISOMETRIC TILE RENDERER)
-      const isActiveLayer = snap.view.activeZLayer === assetInstance.zLevel;
-      
-      switch (snap.view.layerVisibilityMode) {
-        case LayerVisibilityMode.SHADOW:
-          // SHADOW mode: All assets visible, non-active layers dimmed/tinted
-          if (isActiveLayer) {
-            // Active layer: full visibility, no tint
-            sprite.alpha *= 1.0;
-            sprite.tint = 0xFFFFFF; // White (no tint)
-          } else {
-            // Non-active layer: dimmed with layer color tint
-            sprite.alpha *= 0.6;
-            const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
-            if (assetInstance.zLevel < zLayerConfigs.length) {
-              const layerConfig = zLayerConfigs[assetInstance.zLevel];
-              sprite.tint = layerConfig.color;
-            }
-          }
-          break;
-        case LayerVisibilityMode.NORMAL:
-          // NORMAL mode: All assets visible with full opacity, no tinting
-          sprite.alpha *= 1.0;
-          sprite.tint = 0xFFFFFF; // White (no tint)
-          break;
-        case LayerVisibilityMode.INVISIBLE:
-          // INVISIBLE mode: Only active layer assets are rendered (this should only be active layer)
-          sprite.alpha *= 1.0;
-          sprite.tint = 0xFFFFFF; // White (no tint)
-          break;
-        default:
-          sprite.alpha *= 1.0;
-          sprite.tint = 0xFFFFFF; // White (no tint)
-      }
+      // Apply visual effects
+      this.applyVisualEffects(sprite, assetInstance, snap);
       
       sprite.visible = true;
       
     } catch (error) {
-      console.error('[ProcessedAssetsRenderer] Error rendering single asset:', error, assetInstance);
+      console.error('[ProcessedAssetsRenderer] Error rendering tile asset:', error, assetInstance);
     }
   }
   
-  private applyAssetTransformations(sprite: Sprite, assetInstance: RenderableAssetInstance): void {
+  private renderSingleWallAsset(assetInstance: RenderableAssetInstance): void {
     try {
-      const asset = assetInstance.asset;
-      const directionalBehavior = asset.directionalBehavior;
+      const texture = this.getAssetTexture(assetInstance);
+      if (!texture) return;
+      
+      const instanceKey = `${assetInstance.assetId}_${assetInstance.instanceId}`;
+      let sprite = this.activeAssetSprites.get(instanceKey);
+      
+      if (!sprite) {
+        sprite = this.getPooledSprite();
+        this.activeAssetSprites.set(instanceKey, sprite);
+        this.assetsContainer.addChild(sprite);
+      }
+      
+      sprite.texture = texture;
+      
+      // Calculate wall edge position
       const snap = battlemapStore;
+      const isometricOffset = calculateIsometricGridOffset(
+        this.engine?.containerSize?.width || 0,
+        this.engine?.containerSize?.height || 0,
+        snap.grid.width,
+        snap.grid.height,
+        snap.view.gridDiamondWidth,
+        snap.view.offset.x,
+        snap.view.offset.y,
+        ENTITY_PANEL_WIDTH,
+        snap.view.zoomLevel
+      );
       
-      // Get appropriate directional settings
-      let settings;
-      if (directionalBehavior.useSharedSettings) {
-        settings = directionalBehavior.sharedSettings;
-      } else {
-        settings = directionalBehavior.directionalSettings[assetInstance.direction];
+      // Use wall direction from instance or asset configuration
+      const wallDirection = assetInstance.wallDirection || 
+                           assetInstance.asset.wallConfiguration?.wallDirection || 
+                           IsometricDirection.SOUTH;
+      
+      const edgePosition = getWallEdgePosition(
+        assetInstance.position[0],
+        assetInstance.position[1],
+        wallDirection,
+        isometricOffset
+      );
+      
+      sprite.x = edgePosition.x;
+      sprite.y = edgePosition.y;
+      
+      // Apply Z offset
+      const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
+      const zLayerConfig = zLayerConfigs[assetInstance.zLevel];
+      if (zLayerConfig) {
+        sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
       }
       
-      if (!settings) {
-        console.warn('[ProcessedAssetsRenderer] No directional settings found for asset:', assetInstance.assetId);
-        return;
-      }
+      // Set wall anchor
+      const anchor = getWallSpriteAnchor(wallDirection);
+      sprite.anchor.set(anchor.x, anchor.y);
       
-      // Set anchor (SAME AS TILE RENDERER)
-      sprite.anchor.set(0.5, 1.0);
+      // Apply wall positioning
+      this.applyWallPositioning(sprite, assetInstance, wallDirection, snap);
       
-      // Apply both sprite scale AND zoom level for consistent scaling with grid (SAME AS TILE RENDERER)
-      const spriteScale = snap.view.spriteScale;
-      const zoomLevel = snap.view.zoomLevel;
-      const finalScale = spriteScale * zoomLevel; // Both sprite scale and zoom
+      // Apply visual effects
+      this.applyVisualEffects(sprite, assetInstance, snap);
       
-      sprite.scale.set(finalScale * (settings.scaleX || 1.0), finalScale * (settings.scaleY || 1.0));
-      
-      // Apply transformations
-      sprite.rotation = (settings.rotation || 0) * (Math.PI / 180);
-      sprite.alpha = settings.alpha || 1.0;
-      sprite.tint = settings.tint || 0xFFFFFF;
-      
-      // Apply positioning offsets (SCALED BY ZOOM)
-      sprite.x += (settings.horizontalOffset || 0) * zoomLevel;
-      sprite.y += (settings.verticalOffset || 0) * zoomLevel;
-      
-      // Apply custom anchor
-      if (settings.useCustomAnchor) {
-        sprite.anchor.x = settings.anchorX || 0.5;
-        sprite.anchor.y = settings.anchorY || 1.0;
-      }
+      sprite.visible = true;
       
     } catch (error) {
-      console.error('[ProcessedAssetsRenderer] Error applying asset transformations:', error);
+      console.error('[ProcessedAssetsRenderer] Error rendering wall asset:', error, assetInstance);
+    }
+  }
+  
+  private getAssetTexture(assetInstance: RenderableAssetInstance): Texture | null {
+    try {
+      const sourceImagePath = assetInstance.asset.sourceProcessing.sourceImagePath;
+      const pathParts = sourceImagePath.split('/');
+      const fileName = pathParts[pathParts.length - 1];
+      const spriteName = fileName.replace('.png', '');
+      
+      if (!isometricSpriteManager.isSpriteLoaded(spriteName)) {
+        console.warn(`[ProcessedAssetsRenderer] Sprite not loaded: ${spriteName}`);
+        return null;
+      }
+      
+      return isometricSpriteManager.getSpriteTexture(spriteName, assetInstance.direction);
+    } catch (error) {
+      console.error('[ProcessedAssetsRenderer] Error getting texture:', error);
+      return null;
+    }
+  }
+  
+  private applyTilePositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, snap: any): void {
+    const spriteScale = snap.view.spriteScale;
+    const zoomLevel = snap.view.zoomLevel;
+    
+    // Get directional settings
+    const directionalBehavior = assetInstance.asset.directionalBehavior;
+    let settings: MutableDirectionalPositioningSettings;
+    
+    if (directionalBehavior.useSharedSettings) {
+      settings = directionalBehavior.sharedSettings;
+    } else {
+      settings = directionalBehavior.directionalSettings[assetInstance.direction];
+    }
+    
+    // Use auto-computed or manual vertical bias
+    const verticalBias = settings.useAutoComputed 
+      ? settings.autoComputedVerticalBias 
+      : settings.manualVerticalBias;
+    
+    const finalInvisibleMargin = settings.invisibleMarginDown;
+    
+    // Apply positioning based on snap position
+    if (assetInstance.snapPosition === 'above') {
+      const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
+    } else {
+      const spriteScaledOffset = finalInvisibleMargin * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
+    }
+    
+    // Set anchor
+    if (settings.useCustomAnchor) {
+      sprite.anchor.set(settings.anchorX, settings.anchorY);
+    } else {
+      sprite.anchor.set(0.5, 1.0);
+    }
+    
+    // Apply scale
+    const finalScale = spriteScale * zoomLevel;
+    sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
+    
+    // Apply additional transformations
+    sprite.rotation = (settings.rotation || 0) * (Math.PI / 180);
+    sprite.alpha = settings.alpha || 1.0;
+    sprite.tint = settings.tint || 0xFFFFFF;
+    
+    // Apply offsets
+    sprite.x += (settings.horizontalOffset || 0) * zoomLevel;
+    sprite.y += (settings.verticalOffset || 0) * zoomLevel;
+  }
+  
+  private applyWallPositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, wallDirection: IsometricDirection, snap: any): void {
+    const spriteScale = snap.view.spriteScale;
+    const zoomLevel = snap.view.zoomLevel;
+    
+    // Get directional settings
+    const directionalBehavior = assetInstance.asset.directionalBehavior;
+    let settings: MutableDirectionalPositioningSettings;
+    
+    if (directionalBehavior.useSharedSettings) {
+      settings = directionalBehavior.sharedSettings;
+    } else {
+      settings = directionalBehavior.directionalSettings[assetInstance.direction];
+    }
+    
+    // Apply sprite trimming if enabled
+    if (settings.useSpriteTrimmingForWalls && settings.spriteBoundingBox) {
+      this.applySpriteTrimming(sprite, settings.spriteBoundingBox, wallDirection);
+    }
+    
+    // Apply vertical positioning
+    const verticalBias = settings.manualVerticalBias || 0;
+    const finalInvisibleMargin = settings.invisibleMarginDown || 0;
+    
+    if (assetInstance.snapPosition === 'above') {
+      const spriteScaledOffset = (verticalBias + finalInvisibleMargin) * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
+    } else {
+      const spriteScaledOffset = finalInvisibleMargin * spriteScale;
+      sprite.y += spriteScaledOffset * zoomLevel;
+    }
+    
+    // Apply horizontal offset
+    const horizontalOffset = settings.manualHorizontalOffset || 0;
+    if (horizontalOffset !== 0) {
+      const spriteScaledHorizontalOffset = horizontalOffset * spriteScale;
+      sprite.x += spriteScaledHorizontalOffset * zoomLevel;
+    }
+    
+    // Apply diagonal offsets
+    this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
+    
+    // Apply wall-relative offsets
+    this.applyWallRelativeOffsets(sprite, settings, wallDirection, spriteScale, zoomLevel);
+    
+    // Apply scale
+    const finalScale = spriteScale * zoomLevel;
+    sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
+  }
+  
+  private applySpriteTrimming(sprite: Sprite, boundingBox: any, wallDirection: IsometricDirection): void {
+    const directionAnchor = getWallSpriteAnchor(wallDirection);
+    
+    let bboxAnchorX: number, bboxAnchorY: number;
+    
+    if (directionAnchor.x === 0.0) {
+      bboxAnchorX = boundingBox.boundingX;
+    } else if (directionAnchor.x === 1.0) {
+      bboxAnchorX = boundingBox.boundingX + boundingBox.boundingWidth;
+    } else {
+      bboxAnchorX = boundingBox.boundingX + (boundingBox.boundingWidth * directionAnchor.x);
+    }
+    
+    if (directionAnchor.y === 0.0) {
+      bboxAnchorY = boundingBox.boundingY;
+    } else if (directionAnchor.y === 1.0) {
+      bboxAnchorY = boundingBox.boundingY + boundingBox.boundingHeight;
+    } else {
+      bboxAnchorY = boundingBox.boundingY + (boundingBox.boundingHeight * directionAnchor.y);
+    }
+    
+    const spriteAnchorX = bboxAnchorX / boundingBox.originalWidth;
+    const spriteAnchorY = bboxAnchorY / boundingBox.originalHeight;
+    
+    sprite.anchor.set(spriteAnchorX, spriteAnchorY);
+  }
+  
+  private applyDiagonalOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, spriteScale: number, zoomLevel: number): void {
+    const diagonalNEOffset = settings.manualDiagonalNorthEastOffset || 0;
+    const diagonalNWOffset = settings.manualDiagonalNorthWestOffset || 0;
+    
+    if (diagonalNEOffset !== 0 || diagonalNWOffset !== 0) {
+      const neXComponent = diagonalNEOffset * Math.cos(Math.PI / 6);
+      const neYComponent = -diagonalNEOffset * Math.sin(Math.PI / 6);
+      
+      const nwXComponent = -diagonalNWOffset * Math.cos(Math.PI / 6);
+      const nwYComponent = -diagonalNWOffset * Math.sin(Math.PI / 6);
+      
+      const totalXOffset = (neXComponent + nwXComponent) * spriteScale * zoomLevel;
+      const totalYOffset = (neYComponent + nwYComponent) * spriteScale * zoomLevel;
+      
+      sprite.x += totalXOffset;
+      sprite.y += totalYOffset;
+    }
+  }
+  
+  private applyWallRelativeOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, wallDirection: IsometricDirection, spriteScale: number, zoomLevel: number): void {
+    const relativeAlongEdge = settings.relativeAlongEdgeOffset || 0;
+    const relativeTowardCenter = settings.relativeTowardCenterOffset || 0;
+    const relativeDiagA = settings.relativeDiagonalAOffset || 0;
+    const relativeDiagB = settings.relativeDiagonalBOffset || 0;
+    
+    if (relativeAlongEdge !== 0 || relativeTowardCenter !== 0 || relativeDiagA !== 0 || relativeDiagB !== 0) {
+      let alongEdgeX = 0, alongEdgeY = 0;
+      let towardCenterX = 0, towardCenterY = 0;
+      let diagAX = 0, diagAY = 0;
+      let diagBX = 0, diagBY = 0;
+      
+      let diagASignMultiplier = 1;
+      let diagBSignMultiplier = 1;
+      
+      const useADivision = settings.useADivisionForNorthEast ?? true;
+      
+      switch (wallDirection) {
+        case IsometricDirection.NORTH:
+          alongEdgeX = 1; alongEdgeY = 0;
+          towardCenterX = 0; towardCenterY = 1;
+          diagASignMultiplier = useADivision ? -0.5 : -1;
+          diagBSignMultiplier = -1;
+          diagAX = Math.cos(Math.PI / 4); diagAY = Math.sin(Math.PI / 4);
+          diagBX = Math.cos(-Math.PI / 4); diagBY = Math.sin(-Math.PI / 4);
+          break;
+          
+        case IsometricDirection.EAST:
+          alongEdgeX = 0; alongEdgeY = 1;
+          towardCenterX = -1; towardCenterY = 0;
+          diagASignMultiplier = useADivision ? -0.5 : -1;
+          diagBSignMultiplier = +1;
+          diagAX = Math.cos(Math.PI / 2 + Math.PI / 4); diagAY = Math.sin(Math.PI / 2 + Math.PI / 4);
+          diagBX = Math.cos(Math.PI / 2 - Math.PI / 4); diagBY = Math.sin(Math.PI / 2 - Math.PI / 4);
+          break;
+          
+        case IsometricDirection.SOUTH:
+          alongEdgeX = -1; alongEdgeY = 0;
+          towardCenterX = 0; towardCenterY = -1;
+          diagASignMultiplier = +1;
+          diagBSignMultiplier = +1;
+          diagAX = Math.cos(Math.PI + Math.PI / 4); diagAY = Math.sin(Math.PI + Math.PI / 4);
+          diagBX = Math.cos(Math.PI - Math.PI / 4); diagBY = Math.sin(Math.PI - Math.PI / 4);
+          break;
+          
+        case IsometricDirection.WEST:
+          alongEdgeX = 0; alongEdgeY = -1;
+          towardCenterX = 1; towardCenterY = 0;
+          diagASignMultiplier = +1;
+          diagBSignMultiplier = -1;
+          diagAX = Math.cos(-Math.PI / 2 + Math.PI / 4); diagAY = Math.sin(-Math.PI / 2 + Math.PI / 4);
+          diagBX = Math.cos(-Math.PI / 2 - Math.PI / 4); diagBY = Math.sin(-Math.PI / 2 - Math.PI / 4);
+          break;
+      }
+      
+      const totalRelativeX = (
+        relativeAlongEdge * alongEdgeX +
+        relativeTowardCenter * towardCenterX +
+        (relativeDiagA * diagASignMultiplier) * diagAX +
+        (relativeDiagB * diagBSignMultiplier) * diagBX
+      ) * spriteScale * zoomLevel;
+      
+      const totalRelativeY = (
+        relativeAlongEdge * alongEdgeY +
+        relativeTowardCenter * towardCenterY +
+        (relativeDiagA * diagASignMultiplier) * diagAY +
+        (relativeDiagB * diagBSignMultiplier) * diagBY
+      ) * spriteScale * zoomLevel;
+      
+      sprite.x += totalRelativeX;
+      sprite.y += totalRelativeY;
+    }
+  }
+  
+  private applyVisualEffects(sprite: Sprite, assetInstance: RenderableAssetInstance, snap: any): void {
+    const isActiveLayer = assetInstance.zLevel === snap.view.activeZLayer;
+    
+    switch (snap.view.layerVisibilityMode) {
+      case LayerVisibilityMode.SHADOW:
+        if (isActiveLayer) {
+          sprite.alpha = 1.0;
+          sprite.tint = 0xFFFFFF;
+        } else {
+          sprite.alpha = 0.6;
+          const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
+          if (assetInstance.zLevel < zLayerConfigs.length) {
+            const layerConfig = zLayerConfigs[assetInstance.zLevel];
+            sprite.tint = layerConfig.color;
+          }
+        }
+        break;
+      case LayerVisibilityMode.NORMAL:
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF;
+        break;
+      case LayerVisibilityMode.INVISIBLE:
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF;
+        break;
+      default:
+        sprite.alpha = 1.0;
+        sprite.tint = 0xFFFFFF;
     }
   }
   
@@ -430,7 +731,6 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     const visibleAssets = this.getVisibleAssetInstances();
     const sortedAssets = this.sortAssetsByDepth(visibleAssets);
     
-    // Use same rendering pattern as GridRenderer
     sortedAssets.forEach(assetInstance => {
       this.renderFallbackAsset(assetInstance);
     });
@@ -441,12 +741,10 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   private renderFallbackAsset(assetInstance: RenderableAssetInstance): void {
     const snap = battlemapStore;
     
-    // Get active Z layer configuration (same pattern as GridRenderer)
     const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
     const zLayerConfig = zLayerConfigs[assetInstance.zLevel];
     const zOffset = zLayerConfig ? zLayerConfig.verticalOffset : 0;
     
-    // Render fallback diamond using IsometricRenderingUtils (same pattern as GridRenderer)
     IsometricRenderingUtils.renderIsometricDiamondBatchWithZOffset(
       this.fallbackGraphics,
       [{ x: assetInstance.position[0], y: assetInstance.position[1], zOffset }],
@@ -459,12 +757,60 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   private getAssetColor(asset: MutableProcessedAssetDefinition): number {
     // Color by category
     switch (asset.category) {
-      case 'tile': return 0x4CAF50;    // Green
-      case 'wall': return 0x2196F3;    // Blue
-      case 'stair': return 0xFF9800;   // Orange
-      case 'decoration': return 0x9C27B0; // Purple
-      default: return 0x9E9E9E;        // Gray
+      case 'tile': return 0x4CAF50;
+      case 'wall': return 0x2196F3;
+      case 'stair': return 0xFF9800;
+      case 'decoration': return 0x9C27B0;
+      case 'furniture': return 0xFFC107;
+      case 'vegetation': return 0x8BC34A;
+      case 'effect': return 0xE91E63;
+      case 'utility': return 0x607D8B;
+      default: return 0x9E9E9E;
     }
+  }
+  
+  private computeBoundingBox(spriteName: string, direction: IsometricDirection, texture: Texture): any {
+    const cacheKey = `${spriteName}_${direction}`;
+    let boundingBoxData = this.boundingBoxCache.get(cacheKey);
+    
+    if (boundingBoxData) {
+      return boundingBoxData;
+    }
+    
+    try {
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      
+      if (context && this.engine?.app?.renderer) {
+        canvas.width = texture.width;
+        canvas.height = texture.height;
+        
+        const textureData = this.engine.app.renderer.extract.canvas(texture) as HTMLCanvasElement;
+        context.drawImage(textureData, 0, 0);
+        
+        const boundingBox = getCanvasBoundingBox(canvas, 1);
+        
+        if (boundingBox.width > 0 && boundingBox.height > 0) {
+          boundingBoxData = {
+            originalWidth: texture.width,
+            originalHeight: texture.height,
+            boundingX: boundingBox.x,
+            boundingY: boundingBox.y,
+            boundingWidth: boundingBox.width,
+            boundingHeight: boundingBox.height,
+            anchorOffsetX: boundingBox.x / texture.width,
+            anchorOffsetY: boundingBox.y / texture.height
+          };
+          
+          this.boundingBoxCache.set(cacheKey, boundingBoxData);
+          return boundingBoxData;
+        }
+      }
+    } catch (error) {
+      console.warn(`[ProcessedAssetsRenderer] Failed to compute bounding box for ${spriteName}:`, error);
+    }
+    
+    return null;
   }
   
   private getPooledSprite(): Sprite {
@@ -481,11 +827,11 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     sprite.scale.set(1.0);
     sprite.rotation = 0;
     sprite.tint = 0xFFFFFF;
+    sprite.removeFromParent();
     this.spritePool.push(sprite);
   }
   
   private clearAllAssets(): void {
-    // Return sprites to pool (same pattern as other renderers)
     this.activeAssetSprites.forEach(sprite => {
       if (sprite.parent) {
         sprite.parent.removeChild(sprite);
@@ -494,8 +840,12 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     });
     this.activeAssetSprites.clear();
     
-    // Clear fallback graphics
     this.fallbackGraphics.clear();
+  }
+  
+  public forceBoundingBoxRecomputation(): void {
+    this.boundingBoxCache.clear();
+    console.log('[ProcessedAssetsRenderer] Cleared bounding box cache');
   }
   
   public screenToGrid(screenX: number, screenY: number) {
@@ -504,12 +854,20 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   
   destroy(): void {
     this.clearAllAssets();
-    this.destroyGraphics(this.fallbackGraphics);
+    this.boundingBoxCache.clear();
+    this.destroyGraphics(this.fallbackGraphics, 'fallbackGraphics');
     
-    // Clear sprite pool
-    this.spritePool.forEach(sprite => sprite.destroy());
+    this.spritePool.forEach(sprite => {
+      if (!sprite.destroyed) {
+        sprite.destroy();
+      }
+    });
     this.spritePool = [];
+    
+    if (this.assetsContainer && !this.assetsContainer.destroyed) {
+      this.assetsContainer.destroy({ children: true });
+    }
     
     super.destroy();
   }
-} 
+}

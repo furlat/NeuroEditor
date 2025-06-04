@@ -14,6 +14,7 @@ import { IsometricDirection } from '../../game/managers/IsometricSpriteManager';
 import {
   ProcessedAssetId,
   AssetCategory,
+  ProcessedAssetType,
   MutableProcessedAssetDefinition,
   TemporaryAssetState,
   ProcessingOperation,
@@ -299,6 +300,7 @@ export const assetCreationActions = {
       displayName: 'New Asset',
       category: category,
       subcategory: subcategory,
+      assetType: category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE,
       version: 1,
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),

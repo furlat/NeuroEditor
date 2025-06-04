@@ -76,6 +76,7 @@ interface BattlemapStoreState {
       zLevel: number;                      // Z layer
       direction: IsometricDirection;       // Asset orientation
       snapPosition: 'above' | 'below';    // Snap positioning
+      wallDirection?: IsometricDirection;  // NEW: For wall assets
     }>;
     
     // Asset creation and editing state

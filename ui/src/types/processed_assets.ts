@@ -37,6 +37,15 @@ export enum AssetCategory {
  */
 export type AssetSubcategory = string; // e.g. "stone", "wood", "metal", "grass"
 
+/**
+ * Asset type determines rendering behavior and positioning logic
+ */
+export enum ProcessedAssetType {
+  TILE = 'tile',     // Center-anchored grid assets (floors, blocks)
+  WALL = 'wall',     // Edge-anchored grid assets (walls, fences)
+  STAIR = 'stair',   // Multi-level connectors
+}
+
 // ============================================================================
 // SOURCE PROCESSING SYSTEM
 // ============================================================================
@@ -195,6 +204,29 @@ export interface DirectionalPositioningSettings {
   readonly anchorY: number;                             // Custom anchor point Y (0-1)
   readonly useCustomAnchor: boolean;                    // Whether to use custom anchor
   readonly zIndex: number;                              // Additional Z-ordering within layer
+  
+  // Wall-specific positioning (from old system)
+  readonly manualHorizontalOffset?: number;
+  readonly manualDiagonalNorthEastOffset?: number;
+  readonly manualDiagonalNorthWestOffset?: number;
+  readonly relativeAlongEdgeOffset?: number;
+  readonly relativeTowardCenterOffset?: number;
+  readonly relativeDiagonalAOffset?: number;
+  readonly relativeDiagonalBOffset?: number;
+  readonly useADivisionForNorthEast?: boolean;
+  readonly useSpriteTrimmingForWalls?: boolean;
+  
+  // Sprite bounding box data (for trimming)
+  readonly spriteBoundingBox?: {
+    readonly originalWidth: number;
+    readonly originalHeight: number;
+    readonly boundingX: number;
+    readonly boundingY: number;
+    readonly boundingWidth: number;
+    readonly boundingHeight: number;
+    readonly anchorOffsetX: number;
+    readonly anchorOffsetY: number;
+  };
 }
 
 /**
@@ -219,6 +251,25 @@ export interface MutableDirectionalPositioningSettings {
   anchorY: number;
   useCustomAnchor: boolean;
   zIndex: number;
+  manualHorizontalOffset?: number;
+  manualDiagonalNorthEastOffset?: number;
+  manualDiagonalNorthWestOffset?: number;
+  relativeAlongEdgeOffset?: number;
+  relativeTowardCenterOffset?: number;
+  relativeDiagonalAOffset?: number;
+  relativeDiagonalBOffset?: number;
+  useADivisionForNorthEast?: boolean;
+  useSpriteTrimmingForWalls?: boolean;
+  spriteBoundingBox?: {
+    originalWidth: number;
+    originalHeight: number;
+    boundingX: number;
+    boundingY: number;
+    boundingWidth: number;
+    boundingHeight: number;
+    anchorOffsetX: number;
+    anchorOffsetY: number;
+  };
 }
 
 /**
@@ -342,6 +393,19 @@ export interface MutableZLayerContribution {
 }
 
 // ============================================================================
+// WALL-SPECIFIC CONFIGURATION
+// ============================================================================
+
+/**
+ * Wall-specific configuration
+ */
+export interface WallConfiguration {
+  readonly wallDirection: IsometricDirection;  // Which edge (N/E/S/W)
+  readonly wallType: string;                    // Material type
+  readonly blocksMovement: boolean;             // Gameplay property
+}
+
+// ============================================================================
 // COMPLETE PROCESSED ASSET DEFINITION
 // ============================================================================
 
@@ -354,6 +418,7 @@ export interface ProcessedAssetDefinition {
   readonly displayName: string;                         // Human-readable name
   readonly category: AssetCategory;                     // High-level category
   readonly subcategory: AssetSubcategory;              // Specific subcategory
+  readonly assetType: ProcessedAssetType;              // NEW: Determines rendering behavior
   readonly version: number;                            // Version number for updates
   readonly createdAt: string;                          // ISO timestamp
   readonly lastModified: string;                       // ISO timestamp
@@ -370,6 +435,9 @@ export interface ProcessedAssetDefinition {
   // Z-layer integration
   readonly zPropertyContribution: ZLayerContribution;  // How this affects Z-layers
   
+  // Wall-specific configuration (only for wall assets)
+  readonly wallConfiguration?: WallConfiguration;
+  
   // Metadata and organization
   readonly tags: readonly string[];                    // Search and organization tags
   readonly isValid: boolean;                           // Whether asset is ready for use
@@ -384,6 +452,7 @@ export interface MutableProcessedAssetDefinition {
   displayName: string;
   category: AssetCategory;
   subcategory: AssetSubcategory;
+  assetType: ProcessedAssetType;
   version: number;
   createdAt: string;
   lastModified: string;
@@ -391,6 +460,7 @@ export interface MutableProcessedAssetDefinition {
   directionalBehavior: MutableDirectionalBehaviorConfiguration;
   gameplayProperties: MutableDirectionalGameplayConfiguration;
   zPropertyContribution: MutableZLayerContribution;
+  wallConfiguration?: WallConfiguration;
   tags: string[];
   isValid: boolean;
   validationErrors: string[];
@@ -518,6 +588,7 @@ export function createDefaultProcessedAsset(
     displayName: 'New Asset',
     category,
     subcategory,
+    assetType: category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE,
     version: 1,
     createdAt: now,
     lastModified: now,
@@ -554,6 +625,13 @@ export function createDefaultProcessedAsset(
     
     // Z-layer integration
     zPropertyContribution: createDefaultZLayerContribution(),
+    
+    // Wall-specific configuration (only for wall assets)
+    wallConfiguration: category === AssetCategory.WALL ? {
+      wallDirection: IsometricDirection.NORTH,
+      wallType: 'default',
+      blocksMovement: true,
+    } : undefined,
     
     // Metadata and organization
     tags: [],
