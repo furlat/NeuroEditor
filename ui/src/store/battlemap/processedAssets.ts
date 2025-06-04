@@ -52,6 +52,9 @@ export const processedAssetModeActions = {
       processedAssetModeActions.resetViewStateForAssetMode();
       processedAssetModeActions.centerCameraOnAssetGrid();
       
+      // NEW: Initialize preview content if no assets exist
+      processedAssetModeActions.initializePreviewContent();
+      
       console.log('[ProcessedAssets] Switched to processed asset mode - smaller grid initialized');
     } else {
       // Switching BACK to battlemap mode
@@ -173,6 +176,35 @@ export const processedAssetModeActions = {
    */
   isInProcessedAssetMode: (): boolean => {
     return battlemapStore.processedAssets.isProcessedAssetMode;
+  },
+  
+  /**
+   * NEW: Initialize preview content when entering asset mode
+   */
+  initializePreviewContent: () => {
+    try {
+      // Check if we already have some assets in the library
+      const existingAssets = Object.keys(battlemapStore.processedAssets.assetLibrary);
+      if (existingAssets.length > 0) {
+        console.log('[ProcessedAssets] Preview content already exists, skipping initialization');
+        return;
+      }
+      
+      // Check if we already have asset instances
+      const existingInstances = Object.keys(battlemapStore.processedAssets.assetInstances);
+      if (existingInstances.length > 0) {
+        console.log('[ProcessedAssets] Asset instances already exist, skipping initialization');
+        return;
+      }
+      
+      console.log('[ProcessedAssets] Initializing preview content with default assets');
+      
+      // This will be triggered when the first sprite is selected
+      // For now, just ensure the grid is ready
+      
+    } catch (error) {
+      console.error('[ProcessedAssets] Error initializing preview content:', error);
+    }
   },
 };
 

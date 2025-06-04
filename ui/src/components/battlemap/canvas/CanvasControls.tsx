@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Box, Paper, IconButton, Tooltip, Divider, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -13,12 +13,15 @@ import ImageIcon from '@mui/icons-material/Image';
 import HideImageIcon from '@mui/icons-material/HideImage';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { useMapControls, useTileEditor } from '../../../hooks/battlemap';
+import { useSnapshot } from 'valtio';
+import { battlemapStore, battlemapActions } from '../../../store';
 import IsometricSpriteSelector from './IsometricSpriteSelector';
 import IsometricConfigurationPanel from './IsometricConfigurationPanel';
-import { battlemapStore, battlemapActions } from '../../../store';
-import { useSnapshot } from 'valtio';
+import ProcessedAssetConfigurationPanel from '../../ProcessedAssetConfigurationPanel';
+import ProcessedAssetModeToggle from '../../ProcessedAssetModeToggle';
 import SettingsButton from '../../settings/SettingsButton';
 import ZLayerSelector from './ZLayerSelector';
+import ProcessedAssetSpriteSelector from '../../ProcessedAssetSpriteSelector';
 
 /**
  * Component that renders the tile editor control panel
@@ -51,6 +54,17 @@ export const CanvasControls: React.FC = () => {
   // Subscribe to processed asset mode for the toggle
   const processedAssetModeSnap = useSnapshot(battlemapStore.processedAssets);
   
+  // NEW: Auto-activate editing when in processed asset mode
+  useEffect(() => {
+    if (processedAssetModeSnap.isProcessedAssetMode && !isEditing) {
+      console.log('[CanvasControls] Auto-activating editor for processed asset mode');
+      toggleEditing();
+      if (!isEditing) {
+        toggleEditorVisibility();
+      }
+    }
+  }, [processedAssetModeSnap.isProcessedAssetMode, isEditing, toggleEditing, toggleEditorVisibility]);
+
   const handleEditToggle = useCallback(() => {
     console.log('[CanvasControls] Edit button clicked, current state:', { isEditing });
     
@@ -231,27 +245,35 @@ export const CanvasControls: React.FC = () => {
       {/* Z-Layer Selector */}
       <ZLayerSelector isLocked={isLocked} />
 
-      {/* Tile Editor Panels */}
+      {/* NEW LAYOUT: Sprite Selector on Left, Configuration on Right */}
       {isEditing && (
         <>
-          {/* Sprite Selector - Left Side */}
+          {/* Left Side - Sprite Selector */}
           <Box sx={{ 
             position: 'absolute', 
             top: 80,
             left: 16,
             zIndex: 1000
           }}>
-            <IsometricSpriteSelector isLocked={isLocked} />
+            {!processedAssetModeSnap.isProcessedAssetMode ? (
+              <IsometricSpriteSelector isLocked={isLocked} />
+            ) : (
+              <ProcessedAssetSpriteSelector isLocked={isLocked} />
+            )}
           </Box>
           
-          {/* Configuration Panel with Utils - Right Side */}
+          {/* Right Side - Configuration Panel */}
           <Box sx={{ 
             position: 'absolute', 
             top: 80,
             right: 16,
             zIndex: 1000
           }}>
-            <IsometricConfigurationPanel isLocked={isLocked} />
+            {!processedAssetModeSnap.isProcessedAssetMode ? (
+              <IsometricConfigurationPanel isLocked={isLocked} />
+            ) : (
+              <ProcessedAssetConfigurationPanel isLocked={isLocked} />
+            )}
           </Box>
         </>
       )}

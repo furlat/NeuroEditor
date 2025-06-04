@@ -4,7 +4,7 @@ import { battlemapEngine } from './BattlemapEngine';
 import { IsometricGridRenderer } from './renderers/IsometricGridRenderer';
 // import { TileRenderer } from './renderers/TileRenderer';
 import { IsometricTileRenderer } from './renderers/IsometricTileRenderer';
-import { ProcessedAssetsRenderer } from './renderers/IsometricAssetsRenderer';
+import { ProcessedAssetsRenderer } from './renderers/ProcessedAssetsRenderer';
 // import { EntityRenderer } from './renderers/EntityRenderer';
 // import { IsometricEntityRenderer } from './renderers/IsometricEntityRenderer';
 // import { EffectRenderer } from './renderers/EffectRenderer';
