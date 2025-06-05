@@ -28,7 +28,9 @@ import {
   validateProcessedAsset,
   createDefaultDirectionalSettings,
   createDefaultGameplayProperties,
-  calculateAutoComputedPositioning
+  calculateAutoComputedPositioning,
+  getSpriteAnchorCoordinates,
+  SpriteAnchorPoint
 } from '../../types/processed_assets';
 import { Position } from '../../types/common';
 
@@ -833,6 +835,7 @@ export const anchorDistanceAnalysisActions = {
 
   /**
    * Calculate distances between sprite anchors and diamond corners
+   * FIXED: Use the exact same positioning logic as ProcessedAssetsRenderer
    */
   calculateDistances: () => {
     const snap = battlemapStore;
@@ -844,56 +847,168 @@ export const anchorDistanceAnalysisActions = {
       return;
     }
 
+    console.log('[AnchorDistanceAnalysis] 🔄 Calculating distances with exact renderer logic...');
+
     // Use a fixed reference position for calculations (invariant to camera movement)
     const referenceGridX = 0;
     const referenceGridY = 0;
     
-    // Get isometric offset for reference position 
+    // FIXED: Use the exact same isometric offset calculation as the renderer
     const isometricOffset = {
-      offsetX: 0, // Don't include camera offset for reference calculations
+      offsetX: 0, // Reference position, no camera offset
       offsetY: 0,
-      tileSize: snap.view.gridDiamondWidth * snap.view.zoomLevel
+      tileSize: snap.view.gridDiamondWidth // Don't apply zoom for reference calculations
     };
     
-    // Get diamond corners for reference position
+    // Get diamond corners for reference position using exact same function as renderer
     const diamondCorners = getIsometricDiamondCorners(referenceGridX, referenceGridY, isometricOffset);
     
-    // Get grid center position
+    // FIXED: Get grid center position using exact same function as renderer
     const { isoX, isoY } = gridToIsometric(referenceGridX, referenceGridY, isometricOffset.tileSize);
+    const gridCenterX = isometricOffset.offsetX + isoX;
+    const gridCenterY = isometricOffset.offsetY + isoY;
     
-    // Define all sprite anchor points with their coordinates
-    const spriteAnchorPoints = {
-      'center': { x: 0.5, y: 0.5 },
-      'top_left': { x: 0.0, y: 0.0 },
-      'top_center': { x: 0.5, y: 0.0 },
-      'top_right': { x: 1.0, y: 0.0 },
-      'middle_left': { x: 0.0, y: 0.5 },
-      'middle_right': { x: 1.0, y: 0.5 },
-      'bottom_left': { x: 0.0, y: 1.0 },
-      'bottom_center': { x: 0.5, y: 1.0 },
-      'bottom_right': { x: 1.0, y: 1.0 }
-    };
+    // FIXED: Get directional behavior settings (same as renderer)
+    const directionalBehavior = temporaryAsset.directionalBehavior;
+    let settings: any;
+    
+    if (directionalBehavior.useSharedSettings) {
+      settings = directionalBehavior.sharedSettings;
+    } else {
+      // Use SOUTH direction as default for analysis
+      settings = directionalBehavior.directionalSettings[2]; // IsometricDirection.SOUTH = 2
+    }
+    
+    // FIXED: Define sprite anchor points using the same enum as the renderer
+    const spriteAnchorPoints = [
+      SpriteAnchorPoint.CENTER,
+      SpriteAnchorPoint.TOP_LEFT,
+      SpriteAnchorPoint.TOP_CENTER,
+      SpriteAnchorPoint.TOP_RIGHT,
+      SpriteAnchorPoint.MIDDLE_LEFT,
+      SpriteAnchorPoint.MIDDLE_RIGHT,
+      SpriteAnchorPoint.BOTTOM_LEFT,
+      SpriteAnchorPoint.BOTTOM_CENTER,
+      SpriteAnchorPoint.BOTTOM_RIGHT
+    ];
     
     // Calculate distances
     const distanceMatrix: any = {};
     
-    Object.entries(spriteAnchorPoints).forEach(([spriteAnchorName, spriteAnchorCoords]) => {
+    spriteAnchorPoints.forEach((spriteAnchorPoint) => {
+      // FIXED: Use the exact same function as the renderer
+      const spriteAnchorCoords = getSpriteAnchorCoordinates(spriteAnchorPoint);
+      const spriteAnchorName = spriteAnchorPoint; // Use the enum value as the key
+      
       distanceMatrix[spriteAnchorName] = {};
       
-      // Calculate sprite anchor position relative to grid center
-      // For simplicity, assume a 100x100 sprite (we're looking at relative positions)
-      const spriteWidth = 100;
-      const spriteHeight = 100;
+      // STEP 1: Calculate grid anchor offset (same as renderer)
+      const gridAnchorConfig = settings.gridAnchor || { gridAnchorPoint: 'center', gridAnchorX: 0.5, gridAnchorY: 0.5, useDefaultGridAnchor: true };
       
-      const spriteAnchorX = isoX + (spriteAnchorCoords.x - 0.5) * spriteWidth;
-      const spriteAnchorY = isoY + (spriteAnchorCoords.y - 0.5) * spriteHeight;
+      // Use the exact same calculation as ProcessedAssetsRenderer.calculateGridAnchorOffset
+      const halfWidth = isometricOffset.tileSize / 2;
+      const halfHeight = isometricOffset.tileSize / 4;
       
-      // Calculate distances to each diamond corner
+      let gridAnchorOffsetX = 0;
+      let gridAnchorOffsetY = 0;
+      
+      switch (gridAnchorConfig.gridAnchorPoint) {
+        case 'center':
+          gridAnchorOffsetX = 0;
+          gridAnchorOffsetY = 0;
+          break;
+        case 'north_corner':
+          gridAnchorOffsetX = 0;
+          gridAnchorOffsetY = -halfHeight;
+          break;
+        case 'east_corner':
+          gridAnchorOffsetX = halfWidth;
+          gridAnchorOffsetY = 0;
+          break;
+        case 'south_corner':
+          gridAnchorOffsetX = 0;
+          gridAnchorOffsetY = halfHeight;
+          break;
+        case 'west_corner':
+          gridAnchorOffsetX = -halfWidth;
+          gridAnchorOffsetY = 0;
+          break;
+        case 'north_edge':
+          gridAnchorOffsetX = 0;
+          gridAnchorOffsetY = -halfHeight / 2;
+          break;
+        case 'east_edge':
+          gridAnchorOffsetX = halfWidth / 2;
+          gridAnchorOffsetY = 0;
+          break;
+        case 'south_edge':
+          gridAnchorOffsetX = 0;
+          gridAnchorOffsetY = halfHeight / 2;
+          break;
+        case 'west_edge':
+          gridAnchorOffsetX = -halfWidth / 2;
+          gridAnchorOffsetY = 0;
+          break;
+        case 'custom':
+          gridAnchorOffsetX = (gridAnchorConfig.gridAnchorX - 0.5) * halfWidth * 2;
+          gridAnchorOffsetY = (gridAnchorConfig.gridAnchorY - 0.5) * halfHeight * 2;
+          break;
+      }
+      
+      // STEP 2: Calculate sprite position with grid anchor offset
+      let spriteX = gridCenterX + gridAnchorOffsetX;
+      let spriteY = gridCenterY + gridAnchorOffsetY;
+      
+      // STEP 3: Apply positioning offsets (same as renderer)
+      spriteX += settings.horizontalOffset || 0;
+      
+      // Apply Y offset logic (same as renderer)
+      if (settings.useAbovePositioning) {
+        const aboveYOffset = (settings.verticalOffset || 0) - (settings.snapAboveYOffset || 0);
+        spriteY += aboveYOffset;
+      } else {
+        spriteY += settings.verticalOffset || 0;
+      }
+      
+      // STEP 4: The sprite anchor determines what point of the sprite is positioned at spriteX, spriteY
+      // But we want to find where different sprite anchor points would be positioned
+      // So we calculate the offset from the current anchor to the desired anchor
+      
+      // Get current sprite anchor settings
+      const currentSpriteAnchor = settings.spriteAnchor || { spriteAnchorPoint: 'bottom_center', spriteAnchorX: 0.5, spriteAnchorY: 1.0 };
+      let currentAnchorX: number, currentAnchorY: number;
+      
+      // FIXED: Get current anchor coordinates using the same function as the renderer
+      if (currentSpriteAnchor.spriteAnchorPoint === 'custom') {
+        currentAnchorX = currentSpriteAnchor.spriteAnchorX;
+        currentAnchorY = currentSpriteAnchor.spriteAnchorY;
+      } else {
+        // FIXED: Use getSpriteAnchorCoordinates for consistency
+        const currentAnchorCoords = getSpriteAnchorCoordinates(currentSpriteAnchor.spriteAnchorPoint as SpriteAnchorPoint);
+        currentAnchorX = currentAnchorCoords.x;
+        currentAnchorY = currentAnchorCoords.y;
+      }
+      
+      // STEP 5: Calculate where the desired sprite anchor point is located
+      // Assume a reference sprite size for the calculation
+      const referenceSpriteWidth = 64;  // Standard size for calculation
+      const referenceSpriteHeight = 64;
+      
+      // The current sprite anchor is positioned at (spriteX, spriteY)
+      // Calculate where the sprite's top-left corner would be
+      const spriteTopLeftX = spriteX - currentAnchorX * referenceSpriteWidth;
+      const spriteTopLeftY = spriteY - currentAnchorY * referenceSpriteHeight;
+      
+      // Calculate where the desired anchor point is
+      const desiredAnchorX = spriteTopLeftX + spriteAnchorCoords.x * referenceSpriteWidth;
+      const desiredAnchorY = spriteTopLeftY + spriteAnchorCoords.y * referenceSpriteHeight;
+      
+      // STEP 6: Calculate distances to each diamond corner
       Object.entries(diamondCorners).forEach(([cornerName, cornerPos]: [string, any]) => {
         if (cornerName === 'center') return; // Skip center point
         
-        const deltaX = spriteAnchorX - cornerPos.x;
-        const deltaY = spriteAnchorY - cornerPos.y;
+        const deltaX = desiredAnchorX - cornerPos.x;
+        const deltaY = desiredAnchorY - cornerPos.y;
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
         
         distanceMatrix[spriteAnchorName][cornerName] = {
@@ -910,7 +1025,7 @@ export const anchorDistanceAnalysisActions = {
     snap.processedAssets.anchorDistanceAnalysis.distanceMatrix = distanceMatrix;
     snap.processedAssets.anchorDistanceAnalysis.lastCalculationAt = new Date().toISOString();
     
-    console.log('[AnchorDistanceAnalysis] Calculated distances for all anchor points');
+    console.log('[AnchorDistanceAnalysis] ✅ Calculated distances using exact renderer logic');
   },
 
   /**

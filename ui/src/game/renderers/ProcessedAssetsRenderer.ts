@@ -489,6 +489,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   /**
    * NEW: Calculate grid anchor offset based on GridAnchorPoint
    * This determines WHERE on the diamond to attach the sprite
+   * FIXED: Don't double-count offsets - directly position at the target point
    */
   private calculateGridAnchorOffset(
     gridAnchorConfig: any, 
@@ -502,8 +503,9 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       return { x: 0, y: 0 };
     }
     
-    const halfDiamondWidth = (gridDiamondWidth * zoomLevel) / 2;
-    const quarterDiamondHeight = (gridDiamondWidth * zoomLevel) / 4; // Diamond height is width/2, so quarter
+    // FIXED: Use the exact same geometry as getIsometricDiamondCorners
+    const halfWidth = (gridDiamondWidth * zoomLevel) / 2;   // Half diamond width
+    const halfHeight = (gridDiamondWidth * zoomLevel) / 4;  // Half diamond height (2:1 aspect ratio)
     
     let offsetX = 0;
     let offsetY = 0;
@@ -516,54 +518,58 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         break;
         
       case 'north_edge':
+        // North edge: halfway between center and north corner
         offsetX = 0;
-        offsetY = -quarterDiamondHeight;
+        offsetY = -halfHeight / 2;
         break;
         
       case 'east_edge':
-        offsetX = halfDiamondWidth;
+        // East edge: halfway between center and east corner  
+        offsetX = halfWidth / 2;
         offsetY = 0;
         break;
         
       case 'south_edge':
+        // South edge: halfway between center and south corner
         offsetX = 0;
-        offsetY = quarterDiamondHeight;
+        offsetY = halfHeight / 2;
         break;
         
       case 'west_edge':
-        offsetX = -halfDiamondWidth;
+        // West edge: halfway between center and west corner
+        offsetX = -halfWidth / 2;
         offsetY = 0;
         break;
         
       case 'north_corner':
-        // FIXED: North corner is at the top point of the diamond
+        // FIXED: North corner position relative to center
         offsetX = 0;
-        offsetY = -quarterDiamondHeight * 2; // Full diamond height/2
+        offsetY = -halfHeight;
         break;
         
       case 'east_corner':
-        // FIXED: East corner is at the right point of the diamond
-        offsetX = halfDiamondWidth * 2; // Full diamond width/2
+        // FIXED: East corner position relative to center  
+        offsetX = halfWidth;
         offsetY = 0;
         break;
         
       case 'south_corner':
-        // FIXED: South corner is at the bottom point of the diamond
+        // FIXED: South corner position relative to center
         offsetX = 0;
-        offsetY = quarterDiamondHeight * 2; // Full diamond height/2
+        offsetY = halfHeight;
         break;
         
       case 'west_corner':
-        // FIXED: West corner is at the left point of the diamond
-        offsetX = -halfDiamondWidth * 2; // Full diamond width/2
+        // FIXED: West corner position relative to center
+        offsetX = -halfWidth;
         offsetY = 0;
         break;
         
       case 'custom':
         // Use custom gridAnchorX/Y coordinates (0-1 range)
-        // Convert to diamond coordinate system
-        offsetX = (gridAnchorX - 0.5) * halfDiamondWidth * 2; // -1 to +1 range
-        offsetY = (gridAnchorY - 0.5) * quarterDiamondHeight * 2; // -1 to +1 range  
+        // Map from 0-1 coordinate space to diamond coordinate space
+        offsetX = (gridAnchorX - 0.5) * halfWidth * 2;   // Full diamond width range
+        offsetY = (gridAnchorY - 0.5) * halfHeight * 2;  // Full diamond height range
         break;
         
       default:
@@ -614,19 +620,26 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     
     // If trimming is enabled, apply anchor to bounding box instead of full sprite
     if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
-      // FIXED: Simple direct offset calculation
       const bbox = settings.spriteBoundingBox;
       
-      // When using bounding box anchor, we need to shift the sprite position
-      // by the bounding box offset to account for the trimmed transparent area
-      const offsetX = bbox.boundingX;  // Horizontal offset of trimmed area
-      const offsetY = bbox.boundingY;  // Vertical offset of trimmed area
+      // FIXED: Correct bounding box anchor logic
+      // The issue: we set sprite.anchor to work on the FULL sprite canvas,
+      // but we want the anchor to work on the TRIMMED bounding box.
       
-      // Apply the offset to sprite position (scaled by zoom)
-      sprite.x -= offsetX * zoomLevel;  // Subtract because trimmed area starts inside original
-      sprite.y -= offsetY * zoomLevel;  // Subtract because trimmed area starts inside original
+      // Calculate what the anchor position should be on the FULL sprite canvas
+      // to achieve the desired anchor position on the TRIMMED bounding box
+      const trimmedAnchorX = spriteAnchorX; // Where we want the anchor within the trimmed area (0-1)
+      const trimmedAnchorY = spriteAnchorY; // Where we want the anchor within the trimmed area (0-1)
       
-      console.log(`[ProcessedAssetsRenderer] Bounding box offset: trimmed area starts at (${bbox.boundingX}, ${bbox.boundingY}), applying offset (-${offsetX}, -${offsetY})`);
+      // Convert trimmed anchor position to full sprite canvas coordinates
+      const fullSpriteAnchorX = (bbox.boundingX + trimmedAnchorX * bbox.boundingWidth) / bbox.originalWidth;
+      const fullSpriteAnchorY = (bbox.boundingY + trimmedAnchorY * bbox.boundingHeight) / bbox.originalHeight;
+      
+      // Update the sprite anchor to the corrected position
+      sprite.anchor.set(fullSpriteAnchorX, fullSpriteAnchorY);
+      
+      console.log(`[ProcessedAssetsRenderer] 📦 Bounding box anchor: trimmed (${trimmedAnchorX.toFixed(2)}, ${trimmedAnchorY.toFixed(2)}) → full sprite (${fullSpriteAnchorX.toFixed(3)}, ${fullSpriteAnchorY.toFixed(3)})`);
+      console.log(`[ProcessedAssetsRenderer] 📦 Bounding box: ${bbox.boundingWidth}×${bbox.boundingHeight} at (${bbox.boundingX}, ${bbox.boundingY}) in ${bbox.originalWidth}×${bbox.originalHeight} sprite`);
     }
     
     // Apply horizontal offset
