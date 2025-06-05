@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { useSnapshot } from 'valtio';
 import { battlemapStore } from '../store';
+import { forceRerender } from '../store/battlemap/core';
 import { 
   isometricSpriteManager, 
   IsometricDirection, 
@@ -24,7 +25,10 @@ import {
 } from '../game/managers/IsometricSpriteManager';
 import {
   AssetCategory,
-  createDefaultProcessedAsset
+  createDefaultProcessedAsset,
+  TemporaryAssetState,
+  ProcessedAssetType,
+  calculateAutoComputedPositioning
 } from '../types/processed_assets';
 import { processedAssetsActions } from '../store/battlemap/processedAssets';
 
@@ -371,7 +375,7 @@ const ProcessedAssetSpriteSelector: React.FC<ProcessedAssetSpriteSelectorProps> 
       
       // Determine source path based on category
       const metadata = isometricSpriteManager.getSpriteMetadata(spriteName);
-      newAsset.sourceProcessing.sourceImagePath = metadata?.fullPath || `/isometric_tiles/${selectedCategory === AssetSourceCategory.TILES ? 'blocks' : 'walls'}/${spriteName}.png`;
+      const spritePath = metadata?.fullPath || `/isometric_tiles/${selectedCategory === AssetSourceCategory.TILES ? 'blocks' : 'walls'}/${spriteName}.png`;
       
       // Clear validation errors since we have a source image
       newAsset.validationErrors = [];
@@ -380,9 +384,72 @@ const ProcessedAssetSpriteSelector: React.FC<ProcessedAssetSpriteSelectorProps> 
       // Save the asset to the library first, then place instances
       processedAssetsActions.library.addAsset(newAsset);
       
-      // Start asset creation workflow with the saved asset
-      processedAssetsActions.creation.startCreatingAsset(assetCategory, 'default');
-      processedAssetsActions.creation.updateTemporaryAsset(newAsset);
+      // FIXED: Don't call startCreatingAsset as it creates a fresh asset - just set the temporary asset directly
+      battlemapStore.processedAssets.assetCreation.isCreating = true;
+      battlemapStore.processedAssets.assetCreation.isEditing = false;
+      battlemapStore.processedAssets.assetCreation.currentStep = 'directional'; // Skip to directional config
+      battlemapStore.processedAssets.assetCreation.selectedCategory = assetCategory;
+      battlemapStore.processedAssets.assetCreation.selectedSubcategory = 'default';
+      
+      // Convert to temporary asset state
+      const temporaryAsset: TemporaryAssetState = {
+        ...newAsset,
+        isTemporary: true,
+        hasUnsavedChanges: true,
+        sourceProcessing: {
+          ...newAsset.sourceProcessing,
+          sourceImagePath: spritePath
+        }
+      };
+      
+      // CRITICAL FIX: Recalculate auto values using actual sprite dimensions, not default 100x100
+      if (temporaryAsset.assetType === ProcessedAssetType.TILE) {
+        try {
+          const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+          if (spriteFrameSize) {
+            console.log(`[ProcessedAssetSpriteSelector] 🔄 Auto-calculating for ${spriteName}: ${spriteFrameSize.width}x${spriteFrameSize.height}`);
+            
+            // Get current settings for bounding box anchor setting
+            const useBoundingBoxAnchor = temporaryAsset.directionalBehavior.sharedSettings.spriteAnchor.useBoundingBoxAnchor;
+            
+            // USE THE SAME CALCULATION FUNCTION AS handleRecalculate - NO MORE DUPLICATES!
+            const calculatedPositioning = calculateAutoComputedPositioning(
+              spriteFrameSize.width,
+              spriteFrameSize.height,
+              useBoundingBoxAnchor,
+              spriteName,
+              temporaryAsset.assetType
+            );
+            
+            console.log(`[ProcessedAssetSpriteSelector] 🎯 Calculated positioning:`, calculatedPositioning);
+            
+            // Update all directional settings with calculated values - SAME LOGIC AS handleRecalculate
+            const updateSettings = (settings: any) => ({
+              ...settings,
+              autoComputedVerticalBias: calculatedPositioning.autoComputedVerticalBias,
+              manualVerticalBias: calculatedPositioning.autoComputedVerticalBias, // Set manual to computed value
+              verticalOffset: calculatedPositioning.verticalOffset,
+              horizontalOffset: calculatedPositioning.horizontalOffset
+            });
+            
+            temporaryAsset.directionalBehavior.sharedSettings = updateSettings(temporaryAsset.directionalBehavior.sharedSettings);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.NORTH] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.NORTH]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.EAST] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.EAST]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST]);
+            
+            console.log(`[ProcessedAssetSpriteSelector] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}`);
+          }
+        } catch (error) {
+          console.warn('[ProcessedAssetSpriteSelector] Failed to recalculate auto values:', error);
+        }
+      }
+      
+      // Set the temporary asset directly (this preserves the correct wall defaults like A=8, B=3)
+      battlemapStore.processedAssets.temporaryAsset = temporaryAsset;
+      
+      // Force re-render to update the UI
+      forceRerender();
       
       // Now place 4 directional instances with the saved asset ID
       await placeDirectionalInstances(newAsset.id);

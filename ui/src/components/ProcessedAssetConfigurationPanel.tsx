@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { 
   Box, 
   Paper, 
@@ -35,315 +35,33 @@ import {
   Save as SaveIcon,
   Upload as UploadIcon
 } from '@mui/icons-material';
-import { useSnapshot } from 'valtio';
-import { battlemapStore } from '../store';
-import { processedAssetsActions } from '../store/battlemap/processedAssets';
 import { IsometricDirection } from '../game/managers/IsometricSpriteManager';
-import { isometricSpriteManager } from '../game/managers/IsometricSpriteManager';
-import { getCanvasBoundingBox } from 'pixi.js';
-import * as PIXI from 'pixi.js';
-import { gameManager } from '../game/GameManager';
-import { battlemapEngine } from '../game/BattlemapEngine';
+import { useProcessedAssetConfigurationHandlers } from './hooks/useProcessedAssetConfigurationHandlers';
 
 interface ProcessedAssetConfigurationPanelProps {
   isLocked: boolean;
 }
 
 const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPanelProps> = ({ isLocked }) => {
-  // Store subscriptions
-  const processedAssetsSnap = useSnapshot(battlemapStore.processedAssets);
-  const temporaryAsset = processedAssetsSnap.temporaryAsset;
-
-  // Local state for direction selection (when using per-direction mode)
-  const [selectedDirection, setSelectedDirection] = useState<IsometricDirection>(IsometricDirection.SOUTH);
-  const [configStatus, setConfigStatus] = useState<{
-    loaded: boolean;
-    lastSaved?: string;
-    error?: string;
-  }>({ loaded: false });
-
-  // Get current positioning settings based on shared vs per-direction mode
-  const getCurrentPositioningSettings = () => {
-    if (!temporaryAsset) return null;
-    
-    if (temporaryAsset.directionalBehavior.useSharedSettings) {
-      return temporaryAsset.directionalBehavior.sharedSettings;
-    } else {
-      return temporaryAsset.directionalBehavior.directionalSettings[selectedDirection];
-    }
-  };
-
-  const currentSettings = getCurrentPositioningSettings();
-
-  // Function to get sprite bounding box info (from IsometricConfigurationPanel)
-  const getSpriteBoundingBoxInfo = (spriteName: string): { 
-    original: { width: number; height: number }; 
-    boundingBox: { x: number; y: number; width: number; height: number } | null;
-    error?: string;
-  } => {
-    try {
-      const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
-      if (!spriteFrameSize) {
-        return { original: { width: 0, height: 0 }, boundingBox: null, error: 'Sprite not found' };
-      }
-
-      // Try to get the texture and compute bounding box
-      const texture = isometricSpriteManager.getSpriteTexture(spriteName, IsometricDirection.SOUTH);
-      if (!texture) {
-        return { 
-          original: spriteFrameSize, 
-          boundingBox: null, 
-          error: 'Texture not loaded' 
-        };
-      }
-
-      // FIXED: Use proper approach to extract and analyze texture data
-      try {
-        // Create temporary canvas with correct dimensions
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) {
-          return { 
-            original: spriteFrameSize, 
-            boundingBox: null, 
-            error: 'Canvas context failed' 
-          };
-        }
-
-        canvas.width = texture.width;
-        canvas.height = texture.height;
-
-        // Use PIXI's renderer to extract texture if available
-        if (battlemapEngine?.app?.renderer) {
-          try {
-            const tempSprite = new PIXI.Sprite(texture);
-            const extractedCanvas = battlemapEngine.app.renderer.extract.canvas(tempSprite) as HTMLCanvasElement;
-            context.drawImage(extractedCanvas, 0, 0);
-            tempSprite.destroy();
-          } catch (extractError) {
-            // Fallback to direct texture access
-            const resource = texture.baseTexture.resource;
-            if (resource && 'source' in resource) {
-              const img = resource.source as HTMLImageElement;
-              if (img && img.complete && img.naturalWidth > 0) {
-                context.drawImage(
-                  img,
-                  texture.frame.x, texture.frame.y, texture.frame.width, texture.frame.height,
-                  0, 0, texture.frame.width, texture.frame.height
-                );
-              } else {
-                return { 
-                  original: spriteFrameSize, 
-                  boundingBox: null, 
-                  error: 'Image not ready' 
-                };
-              }
-            } else {
-              return { 
-                original: spriteFrameSize, 
-                boundingBox: null, 
-                error: 'Texture resource unavailable' 
-              };
-            }
-          }
-        } else {
-          // No renderer available, try direct texture access
-          const resource = texture.baseTexture.resource;
-          if (resource && 'source' in resource) {
-            const img = resource.source as HTMLImageElement;
-            if (img && img.complete && img.naturalWidth > 0) {
-              context.drawImage(
-                img,
-                texture.frame.x, texture.frame.y, texture.frame.width, texture.frame.height,
-                0, 0, texture.frame.width, texture.frame.height
-              );
-            } else {
-              return { 
-                original: spriteFrameSize, 
-                boundingBox: null, 
-                error: 'Image not ready' 
-              };
-            }
-          } else {
-            return { 
-              original: spriteFrameSize, 
-              boundingBox: null, 
-              error: 'No renderer or resource available' 
-            };
-          }
-        }
-
-        // FIXED: Use the correct getCanvasBoundingBox function with resolution=1
-        const boundingBox = getCanvasBoundingBox(canvas, 1);
-        
-        return {
-          original: spriteFrameSize,
-          boundingBox: {
-            x: boundingBox.x,
-            y: boundingBox.y,
-            width: boundingBox.width,
-            height: boundingBox.height
-          }
-        };
-      } catch (processingError) {
-        console.warn('[ProcessedAssetConfigurationPanel] Bounding box computation failed:', processingError);
-        return { 
-          original: spriteFrameSize, 
-          boundingBox: null, 
-          error: 'Bounding box computation failed' 
-        };
-      }
-    } catch (error) {
-      return { 
-        original: { width: 0, height: 0 }, 
-        boundingBox: null, 
-        error: `Error: ${error}` 
-      };
-    }
-  };
-
-  // Handle refreshing the preview
-  const handleRefreshPreview = () => {
-    if (temporaryAsset) {
-      // Clear existing instances first
-      const existingInstances = processedAssetsActions.instances.getAllInstances();
-      Object.keys(existingInstances).forEach(instanceKey => {
-        processedAssetsActions.instances.removeAssetInstance(instanceKey);
-      });
-      
-      // Re-place directional instances
-      const placements = [
-        { position: [0, 0] as const, direction: IsometricDirection.NORTH },
-        { position: [0, 2] as const, direction: IsometricDirection.EAST },
-        { position: [2, 0] as const, direction: IsometricDirection.SOUTH },
-        { position: [2, 2] as const, direction: IsometricDirection.WEST },
-      ];
-      
-      placements.forEach(({ position, direction }) => {
-        processedAssetsActions.instances.placeAssetInstance(
-          temporaryAsset.id,
-          position,
-          0, // Z level 0
-          direction,
-          'above' // Snap position
-        );
-      });
-      
-      console.log(`[ProcessedAssetConfigurationPanel] Refreshed preview for asset: ${temporaryAsset.id}`);
-    }
-  };
-
-  // Handle shared settings toggle
-  const handleSharedSettingsToggle = () => {
-    if (!temporaryAsset) return;
-    
-    const newSharedState = !temporaryAsset.directionalBehavior.useSharedSettings;
-    
-    processedAssetsActions.creation.updateTemporaryAsset({
-      directionalBehavior: {
-        ...temporaryAsset.directionalBehavior,
-        useSharedSettings: newSharedState
-      }
-    });
-    
-    console.log(`[ProcessedAssetConfigurationPanel] Toggled shared settings: ${newSharedState}`);
-  };
-
-  // Handle auto-computed vs manual toggle
-  const handleToggleAutoMode = () => {
-    if (!temporaryAsset || !currentSettings) return;
-    
-    // Auto-computed mode is only available for tile assets
-    if (temporaryAsset.assetType !== 'tile') {
-      console.warn('[ProcessedAssetConfigurationPanel] Auto-computed mode only available for tile assets');
-      return;
-    }
-    
-    const newUseAutoComputed = !currentSettings.useAutoComputed;
-    
-    updateCurrentSettings({
-      useAutoComputed: newUseAutoComputed
-    });
-  };
-
-  // Update current settings (shared or directional)
-  const updateCurrentSettings = (updates: any) => {
-    if (!temporaryAsset) return;
-    
-    if (temporaryAsset.directionalBehavior.useSharedSettings) {
-      // Update shared settings
-      processedAssetsActions.creation.updateTemporaryAsset({
-        directionalBehavior: {
-          ...temporaryAsset.directionalBehavior,
-          sharedSettings: {
-            ...temporaryAsset.directionalBehavior.sharedSettings,
-            ...updates
-          }
-        }
-      });
-    } else {
-      // Update specific direction settings
-      processedAssetsActions.creation.updateTemporaryAsset({
-        directionalBehavior: {
-          ...temporaryAsset.directionalBehavior,
-          directionalSettings: {
-            ...temporaryAsset.directionalBehavior.directionalSettings,
-            [selectedDirection]: {
-              ...temporaryAsset.directionalBehavior.directionalSettings[selectedDirection],
-              ...updates
-            }
-          }
-        }
-      });
-    }
-  };
-
-  // Handle margin changes
-  const handleMarginChange = (marginType: 'up' | 'down' | 'left' | 'right', value: number) => {
-    const marginKey = `invisibleMargin${marginType.charAt(0).toUpperCase() + marginType.slice(1)}`;
-    updateCurrentSettings({ [marginKey]: value });
-  };
-
-  // Handle vertical bias change
-  const handleManualVerticalBiasChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(event.target.value);
-    if (!isNaN(value)) {
-      updateCurrentSettings({
-        manualVerticalBias: value,
-        useAutoComputed: false
-      });
-    }
-  };
-
-  // Handle recalculation for auto mode
-  const handleRecalculate = () => {
-    if (!temporaryAsset || !currentSettings) return;
-    
-    // Get sprite name from source path (simple extraction)
-    const sourceFileName = temporaryAsset.sourceProcessing.sourceImagePath.split('/').pop();
-    const spriteName = sourceFileName?.replace('.png', '') || '';
-    
-    if (spriteName) {
-      try {
-        const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
-        if (spriteFrameSize) {
-          // Use the same formula as in IsometricConfigurationPanel
-          const normalizedHeight = spriteFrameSize.height / 100;
-          const normalizedWidth = spriteFrameSize.width / 100;
-          const autoComputedVerticalBias = normalizedHeight - (normalizedWidth / 2);
-          
-          updateCurrentSettings({
-            autoComputedVerticalBias: autoComputedVerticalBias,
-            useAutoComputed: true
-          });
-          
-          console.log(`[ProcessedAssetConfigurationPanel] Recalculated auto vertical bias: ${autoComputedVerticalBias}`);
-        }
-      } catch (error) {
-        console.error('[ProcessedAssetConfigurationPanel] Error recalculating:', error);
-      }
-    }
-  };
+  // Use the extracted handlers hook
+  const {
+    selectedDirection,
+    setSelectedDirection,
+    configStatus,
+    setConfigStatus,
+    temporaryAsset,
+    processedAssetsSnap,
+    getCurrentPositioningSettings,
+    currentSettings,
+    getSpriteBoundingBoxInfo,
+    handleRefreshPreview,
+    handleSharedSettingsToggle,
+    handleToggleAutoMode,
+    updateCurrentSettings,
+    handleMarginChange,
+    handleManualVerticalBiasChange,
+    handleRecalculate
+  } = useProcessedAssetConfigurationHandlers();
 
   return (
     <Paper sx={{ 
@@ -404,6 +122,43 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block' }}>
             <strong>Preview:</strong> All 4 directions displayed on grid at (0,0), (0,2), (2,0), (2,2)
           </Typography>
+          
+          {/* Sprite Analysis */}
+          {(() => {
+            const sourceFileName = temporaryAsset.sourceProcessing.sourceImagePath.split('/').pop();
+            const spriteName = sourceFileName?.replace('.png', '') || '';
+            const boundingInfo = spriteName ? getSpriteBoundingBoxInfo(spriteName) : null;
+            
+            return (
+              <Box sx={{ mt: 2, p: 2, border: '1px solid #FF9800', borderRadius: 1, backgroundColor: 'rgba(255,152,0,0.05)' }}>
+                <Typography variant="caption" sx={{ color: '#FF9800', fontSize: '0.7rem', fontWeight: 'bold', mb: 1, display: 'block' }}>
+                  📊 Sprite Analysis:
+                </Typography>
+                
+                {boundingInfo?.error ? (
+                  <Typography variant="caption" sx={{ color: '#FF5722', fontSize: '0.65rem' }}>
+                    ⚠️ {boundingInfo.error}
+                  </Typography>
+                ) : boundingInfo?.boundingBox ? (
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#FF9800', fontSize: '0.6rem', display: 'block' }}>
+                      📏 Original: {boundingInfo.original.width}×{boundingInfo.original.height}px
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#FF9800', fontSize: '0.6rem', display: 'block' }}>
+                      ✂️ Trimmed: {boundingInfo.boundingBox.width}×{boundingInfo.boundingBox.height}px
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#FF9800', fontSize: '0.6rem', display: 'block' }}>
+                      📍 Offset: ({boundingInfo.boundingBox.x}, {boundingInfo.boundingBox.y})
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Typography variant="caption" sx={{ color: 'rgba(255,152,0,0.7)', fontSize: '0.65rem' }}>
+                    🔍 Analyzing sprite for transparent pixel trimming...
+                  </Typography>
+                )}
+              </Box>
+            );
+          })()}
         </Box>
       )}
 
@@ -549,45 +304,6 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                 <>
                   {/* FIXED: Live Vertical Positioning Values (No Auto Toggle) */}
                   <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#FF5722' }}>
-                      📏 Vertical Positioning:
-                    </Typography>
-                    
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(255,87,34,0.8)', 
-                      fontSize: '0.7rem',
-                      display: 'block',
-                      mb: 2
-                    }}>
-                      Live values: Manual (current) + Auto-computed (reference) + Restore button
-                    </Typography>
-
-                    {/* Current Manual Value - ALWAYS shown and editable */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <Typography variant="body2" sx={{ minWidth: '60px', color: '#FF5722', fontWeight: 'bold' }}>Current:</Typography>
-                      <TextField
-                        type="number"
-                        value={currentSettings.manualVerticalBias}
-                        onChange={handleManualVerticalBiasChange}
-                        disabled={isLocked}
-                        size="small"
-                        sx={{ 
-                          width: '80px',
-                          '& .MuiInputBase-input': { 
-                            color: 'white', 
-                            fontSize: '0.8rem', 
-                            padding: '4px 8px',
-                            fontWeight: 'bold'
-                          },
-                          '& .MuiOutlinedInput-root': { 
-                            '& fieldset': { borderColor: '#FF5722' },
-                            '&:hover fieldset': { borderColor: '#D84315' }
-                          }
-                        }}
-                      />
-                      <Typography variant="caption" sx={{ color: '#FF5722' }}>px</Typography>
-                    </Box>
-
                     {/* Auto-computed reference - ONLY for tiles */}
                     {temporaryAsset.assetType === 'tile' && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -666,135 +382,6 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                         ? '🪜 Stairs: Manual positioning for multi-level connectors'
                         : '🎯 Custom: Manual positioning for specialized assets'
                       }
-                    </Typography>
-                  </Box>
-
-                  {/* 4-Directional Margins */}
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#673AB7' }}>
-                      📐 Invisible Margins:
-                    </Typography>
-                    
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                      {/* Up */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ minWidth: '30px', color: '#673AB7' }}>Up:</Typography>
-                        <TextField
-                          type="number"
-                          value={currentSettings.invisibleMarginUp}
-                          onChange={(e) => handleMarginChange('up', parseInt(e.target.value) || 0)}
-                          disabled={isLocked}
-                          size="small"
-                          sx={{ 
-                            width: '60px',
-                            '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                            '& .MuiOutlinedInput-root': { 
-                              '& fieldset': { borderColor: '#673AB7' },
-                              '&:hover fieldset': { borderColor: '#512DA8' }
-                            }
-                          }}
-                        />
-                      </Box>
-                      
-                      {/* Down */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ minWidth: '40px', color: '#673AB7' }}>Down:</Typography>
-                        <TextField
-                          type="number"
-                          value={currentSettings.invisibleMarginDown}
-                          onChange={(e) => handleMarginChange('down', parseInt(e.target.value) || 0)}
-                          disabled={isLocked}
-                          size="small"
-                          sx={{ 
-                            width: '60px',
-                            '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                            '& .MuiOutlinedInput-root': { 
-                              '& fieldset': { borderColor: '#673AB7' },
-                              '&:hover fieldset': { borderColor: '#512DA8' }
-                            }
-                          }}
-                        />
-                      </Box>
-                      
-                      {/* Left */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ minWidth: '30px', color: '#673AB7' }}>Left:</Typography>
-                        <TextField
-                          type="number"
-                          value={currentSettings.invisibleMarginLeft}
-                          onChange={(e) => handleMarginChange('left', parseInt(e.target.value) || 0)}
-                          disabled={isLocked}
-                          size="small"
-                          sx={{ 
-                            width: '60px',
-                            '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                            '& .MuiOutlinedInput-root': { 
-                              '& fieldset': { borderColor: '#673AB7' },
-                              '&:hover fieldset': { borderColor: '#512DA8' }
-                            }
-                          }}
-                        />
-                      </Box>
-                      
-                      {/* Right */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ minWidth: '40px', color: '#673AB7' }}>Right:</Typography>
-                        <TextField
-                          type="number"
-                          value={currentSettings.invisibleMarginRight}
-                          onChange={(e) => handleMarginChange('right', parseInt(e.target.value) || 0)}
-                          disabled={isLocked}
-                          size="small"
-                          sx={{ 
-                            width: '60px',
-                            '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                            '& .MuiOutlinedInput-root': { 
-                              '& fieldset': { borderColor: '#673AB7' },
-                              '&:hover fieldset': { borderColor: '#512DA8' }
-                            }
-                          }}
-                        />
-                      </Box>
-                    </Box>
-                  </Box>
-
-                  {/* Manual Horizontal Offset (for walls) */}
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#607D8B' }}>
-                      ↔️ Manual Horizontal Offset:
-                    </Typography>
-                    
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" sx={{ minWidth: '80px', color: '#607D8B' }}>Horizontal:</Typography>
-                      <TextField
-                        type="number"
-                        value={currentSettings.manualHorizontalOffset || 0}
-                        onChange={(e) => updateCurrentSettings({ manualHorizontalOffset: parseInt(e.target.value) || 0 })}
-                        disabled={isLocked}
-                        size="small"
-                        sx={{ 
-                          width: '80px',
-                          '& .MuiInputBase-input': { 
-                            color: 'white', 
-                            fontSize: '0.8rem', 
-                            padding: '4px 8px' 
-                          },
-                          '& .MuiOutlinedInput-root': { 
-                            '& fieldset': { borderColor: '#607D8B' },
-                            '&:hover fieldset': { borderColor: '#455A64' }
-                          }
-                        }}
-                      />
-                      <Typography variant="caption" sx={{ color: '#607D8B' }}>px</Typography>
-                    </Box>
-                    
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(96,125,139,0.7)', 
-                      fontSize: '0.6rem',
-                      display: 'block',
-                      mt: 1
-                    }}>
-                      💡 Additional horizontal positioning offset (especially useful for walls)
                     </Typography>
                   </Box>
 
@@ -1236,246 +823,152 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                       </Box>
                     </Box>
 
-                    {/* Wall-Relative Positioning (A=8, B=3 System) */}
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="caption" sx={{ color: '#E91E63', fontSize: '0.7rem', mb: 1, display: 'block' }}>
-                        🧱 Wall-Relative Positioning (A=8, B=3 System):
-                      </Typography>
-                      
-                      {/* First Row: Along Edge & Toward Center */}
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>Edge:</Typography>
-                          <TextField
-                            type="number"
-                            value={currentSettings.relativeAlongEdgeOffset || 0}
-                            onChange={(e) => updateCurrentSettings({ relativeAlongEdgeOffset: parseInt(e.target.value) || 0 })}
-                            disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#E91E63' },
-                                '&:hover fieldset': { borderColor: '#C2185B' }
-                              }
-                            }}
-                          />
-                        </Box>
+                    {/* Wall-Relative Positioning (A=8, B=3 System) - Only for non-tile assets */}
+                    {temporaryAsset.assetType !== 'tile' && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" sx={{ color: '#E91E63', fontSize: '0.7rem', mb: 1, display: 'block' }}>
+                          🧱 Wall-Relative Positioning (A=8, B=3 System):
+                        </Typography>
                         
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>Center:</Typography>
-                          <TextField
-                            type="number"
-                            value={currentSettings.relativeTowardCenterOffset || 0}
-                            onChange={(e) => updateCurrentSettings({ relativeTowardCenterOffset: parseInt(e.target.value) || 0 })}
-                            disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#E91E63' },
-                                '&:hover fieldset': { borderColor: '#C2185B' }
-                              }
-                            }}
-                          />
-                        </Box>
-                      </Box>
-
-                      {/* Second Row: Diagonal A & B */}
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>DiagA:</Typography>
-                          <TextField
-                            type="number"
-                            value={currentSettings.relativeDiagonalAOffset || 0}
-                            onChange={(e) => updateCurrentSettings({ relativeDiagonalAOffset: parseInt(e.target.value) || 0 })}
-                            disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#E91E63' },
-                                '&:hover fieldset': { borderColor: '#C2185B' }
-                              }
-                            }}
-                          />
-                        </Box>
-                        
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>DiagB:</Typography>
-                          <TextField
-                            type="number"
-                            value={currentSettings.relativeDiagonalBOffset || 0}
-                            onChange={(e) => updateCurrentSettings({ relativeDiagonalBOffset: parseInt(e.target.value) || 0 })}
-                            disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#E91E63' },
-                                '&:hover fieldset': { borderColor: '#C2185B' }
-                              }
-                            }}
-                          />
-                        </Box>
-                      </Box>
-
-                      {/* A Division Flag for North/East */}
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={currentSettings.useADivisionForNorthEast ?? true}
-                            onChange={(e) => updateCurrentSettings({ useADivisionForNorthEast: e.target.checked })}
-                            disabled={isLocked}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': { color: '#E91E63' },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#E91E63' }
-                            }}
-                          />
-                        }
-                        label={
-                          <Typography variant="caption" sx={{ color: currentSettings.useADivisionForNorthEast ? '#E91E63' : 'white', fontSize: '0.65rem' }}>
-                            🔄 A-Division for North/East (A÷2)
-                          </Typography>
-                        }
-                        sx={{ mb: 1 }}
-                      />
-                      
-                      <Typography variant="caption" sx={{ 
-                        color: 'rgba(233,30,99,0.7)', 
-                        fontSize: '0.6rem',
-                        display: 'block'
-                      }}>
-                        💡 Wall-relative: Edge=along wall, Center=toward cell center, A=8, B=3 classic system
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Canvas Trimming & Bounding Box */}
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#795548' }}>
-                      ✂️ Canvas Trimming & Bounding Box:
-                    </Typography>
-                    
-                    {/* Asset type specific info */}
-                    <Typography variant="caption" sx={{ 
-                      color: 'rgba(121,85,72,0.8)', 
-                      fontSize: '0.7rem',
-                      display: 'block',
-                      mb: 2
-                    }}>
-                      {temporaryAsset.assetType === 'wall' 
-                        ? '🧱 Wall assets: Trimming adjusts anchor to visible content for precise edge positioning'
-                        : temporaryAsset.assetType === 'tile'
-                        ? '📦 Tile assets: Auto mode uses original anchor, Manual mode can use trimmed anchor'
-                        : '🎯 Custom assets: Trimming adjusts anchor based on asset positioning needs'
-                      }
-                    </Typography>
-                    
-                    {/* Sprite Trimming Toggle - Updated logic for auto vs manual */}
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={currentSettings.useSpriteTrimmingForWalls || false}
-                          onChange={(e) => updateCurrentSettings({ useSpriteTrimmingForWalls: e.target.checked })}
-                          disabled={isLocked || (temporaryAsset.assetType === 'tile' && currentSettings.useAutoComputed)}
-                          sx={{
-                            '& .MuiSwitch-switchBase.Mui-checked': { color: '#795548' },
-                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#795548' }
-                          }}
-                        />
-                      }
-                      label={
-                        <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                          <Typography variant="body2" sx={{ color: currentSettings.useSpriteTrimmingForWalls ? '#795548' : 'white', fontSize: '0.75rem' }}>
-                            {currentSettings.useSpriteTrimmingForWalls ? '✂️ Use Bounding Box Anchor' : '📐 Use Original Sprite Anchor'}
-                          </Typography>
-                          {temporaryAsset.assetType === 'tile' && currentSettings.useAutoComputed && (
-                            <Typography variant="caption" sx={{ color: 'rgba(255,152,0,0.7)', fontSize: '0.65rem' }}>
-                              ⚠️ Auto mode: Original anchor enforced (disable auto for trimming)
-                            </Typography>
-                          )}
-                        </Box>
-                      }
-                      sx={{ mb: 2 }}
-                    />
-
-                    {/* Bounding Box Information */}
-                    {(() => {
-                      if (!temporaryAsset) return null;
-                      
-                      const sourceFileName = temporaryAsset.sourceProcessing.sourceImagePath.split('/').pop();
-                      const spriteName = sourceFileName?.replace('.png', '') || '';
-                      const boundingInfo = spriteName ? getSpriteBoundingBoxInfo(spriteName) : null;
-                      
-                      return (
-                        <Box sx={{ p: 2, border: '1px solid #795548', borderRadius: 1, backgroundColor: 'rgba(121,85,72,0.05)' }}>
-                          <Typography variant="caption" sx={{ color: '#795548', fontSize: '0.7rem', fontWeight: 'bold', mb: 1, display: 'block' }}>
-                            📊 Sprite Analysis:
-                          </Typography>
-                          
-                          {boundingInfo?.error ? (
-                            <Typography variant="caption" sx={{ color: '#FF5722', fontSize: '0.65rem' }}>
-                              ⚠️ {boundingInfo.error}
-                            </Typography>
-                          ) : boundingInfo?.boundingBox ? (
-                            <Box>
-                              <Typography variant="caption" sx={{ color: '#795548', fontSize: '0.6rem', display: 'block' }}>
-                                📏 Original: {boundingInfo.original.width}×{boundingInfo.original.height}px
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#795548', fontSize: '0.6rem', display: 'block' }}>
-                                ✂️ Trimmed: {boundingInfo.boundingBox.width}×{boundingInfo.boundingBox.height}px
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#795548', fontSize: '0.6rem', display: 'block' }}>
-                                📍 Offset: ({boundingInfo.boundingBox.x}, {boundingInfo.boundingBox.y})
-                              </Typography>
-                              
-                              {/* Auto-store bounding box when detected */}
-                              {(() => {
-                                // Store the bounding box in the current settings
-                                const boundingBoxData = {
-                                  originalWidth: boundingInfo.original.width,
-                                  originalHeight: boundingInfo.original.height,
-                                  boundingX: boundingInfo.boundingBox.x,
-                                  boundingY: boundingInfo.boundingBox.y,
-                                  boundingWidth: boundingInfo.boundingBox.width,
-                                  boundingHeight: boundingInfo.boundingBox.height,
-                                  anchorOffsetX: boundingInfo.boundingBox.x / boundingInfo.original.width,
-                                  anchorOffsetY: boundingInfo.boundingBox.y / boundingInfo.original.height
-                                };
-                                
-                                // Auto-update if not already set
-                                if (!currentSettings.spriteBoundingBox || 
-                                    JSON.stringify(currentSettings.spriteBoundingBox) !== JSON.stringify(boundingBoxData)) {
-                                  setTimeout(() => {
-                                    updateCurrentSettings({ spriteBoundingBox: boundingBoxData });
-                                  }, 0);
+                        {/* First Row: Along Edge & Toward Center */}
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>Edge:</Typography>
+                            <TextField
+                              type="number"
+                              value={currentSettings.relativeAlongEdgeOffset || 0}
+                              onChange={(e) => updateCurrentSettings({ relativeAlongEdgeOffset: parseInt(e.target.value) || 0 })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#E91E63' },
+                                  '&:hover fieldset': { borderColor: '#C2185B' }
                                 }
-                                
-                                return null;
-                              })()}
-                            </Box>
-                          ) : (
-                            <Typography variant="caption" sx={{ color: 'rgba(121,85,72,0.7)', fontSize: '0.65rem' }}>
-                              🔍 Analyzing sprite for transparent pixel trimming...
-                            </Typography>
-                          )}
+                              }}
+                            />
+                          </Box>
                           
-                          <Typography variant="caption" sx={{ 
-                            color: 'rgba(121,85,72,0.7)', 
-                            fontSize: '0.6rem',
-                            display: 'block',
-                            mt: 1
-                          }}>
-                            💡 Trimming removes transparent borders and adjusts anchor to the visible content
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>Center:</Typography>
+                            <TextField
+                              type="number"
+                              value={currentSettings.relativeTowardCenterOffset || 0}
+                              onChange={(e) => updateCurrentSettings({ relativeTowardCenterOffset: parseInt(e.target.value) || 0 })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#E91E63' },
+                                  '&:hover fieldset': { borderColor: '#C2185B' }
+                                }
+                              }}
+                            />
+                          </Box>
                         </Box>
-                      );
-                    })()}
+
+                        {/* Second Row: Diagonal A & B */}
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>DiagA:</Typography>
+                            <TextField
+                              type="number"
+                              value={currentSettings.relativeDiagonalAOffset || 0}
+                              onChange={(e) => updateCurrentSettings({ relativeDiagonalAOffset: parseInt(e.target.value) || 0 })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#E91E63' },
+                                  '&:hover fieldset': { borderColor: '#C2185B' }
+                                }
+                              }}
+                            />
+                          </Box>
+                          
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '35px', color: '#E91E63', fontSize: '0.6rem' }}>DiagB:</Typography>
+                            <TextField
+                              type="number"
+                              value={currentSettings.relativeDiagonalBOffset || 0}
+                              onChange={(e) => updateCurrentSettings({ relativeDiagonalBOffset: parseInt(e.target.value) || 0 })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#E91E63' },
+                                  '&:hover fieldset': { borderColor: '#C2185B' }
+                                }
+                              }}
+                            />
+                          </Box>
+                        </Box>
+
+                        {/* A Division Flag for North/East */}
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={currentSettings.useADivisionForNorthEast ?? true}
+                              onChange={(e) => updateCurrentSettings({ useADivisionForNorthEast: e.target.checked })}
+                              disabled={isLocked}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: '#E91E63' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#E91E63' }
+                              }}
+                            />
+                          }
+                          label={
+                            <Typography variant="caption" sx={{ color: currentSettings.useADivisionForNorthEast ? '#E91E63' : 'white', fontSize: '0.65rem' }}>
+                              🔄 A-Division for North/East (A÷2)
+                            </Typography>
+                          }
+                          sx={{ mb: 1 }}
+                        />
+                        
+                        {/* Reset to Defaults Button */}
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                          <Button
+                            variant="outlined"
+                            onClick={() => {
+                              // Restore the A=8, B=3 classic defaults
+                              updateCurrentSettings({ 
+                                relativeAlongEdgeOffset: 0,
+                                relativeTowardCenterOffset: 0,
+                                relativeDiagonalAOffset: 8,
+                                relativeDiagonalBOffset: 3,
+                                useADivisionForNorthEast: true
+                              });
+                            }}
+                            disabled={isLocked}
+                            size="small"
+                            sx={{
+                              fontSize: '0.6rem',
+                              borderColor: '#E91E63',
+                              color: '#E91E63',
+                              '&:hover': { borderColor: '#C2185B', color: '#C2185B' }
+                            }}
+                          >
+                            🔄 Reset to A=8, B=3 Defaults
+                          </Button>
+                        </Box>
+                        
+                        <Typography variant="caption" sx={{ 
+                          color: 'rgba(233,30,99,0.7)', 
+                          fontSize: '0.6rem',
+                          display: 'block'
+                        }}>
+                          💡 Wall-relative: Edge=along wall, Center=toward cell center, A=8, B=3 classic system
+                        </Typography>
+                      </Box>
+                    )}
                   </Box>
                 </>
               )}

@@ -24,7 +24,6 @@ interface RenderableAssetInstance {
   zLevel: number;
   direction: IsometricDirection;
   snapPosition: 'above' | 'below';
-  wallDirection?: IsometricDirection;  // For wall assets
   assetType: ProcessedAssetType;       // Determines rendering path
 }
 
@@ -287,7 +286,6 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         zLevel: instance.zLevel,
         direction: instance.direction,
         snapPosition: instance.snapPosition,
-        wallDirection: instance.wallDirection,
         assetType
       });
     });
@@ -317,7 +315,6 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
               zLevel: instance.zLevel,
               direction: instance.direction,
               snapPosition: instance.snapPosition,
-              wallDirection: instance.wallDirection,
               assetType
             });
           }
@@ -361,8 +358,8 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       
       // For walls at same position, sort by edge direction
       if (a.assetType === ProcessedAssetType.WALL && b.assetType === ProcessedAssetType.WALL) {
-        const wallDirA = a.wallDirection || IsometricDirection.SOUTH;
-        const wallDirB = b.wallDirection || IsometricDirection.SOUTH;
+        const wallDirA = a.direction;
+        const wallDirB = b.direction;
         return wallDirA - wallDirB;
       }
       
@@ -495,9 +492,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       );
       
       // Use wall direction from instance or asset configuration
-      const wallDirection = assetInstance.wallDirection || 
-                           assetInstance.asset.wallConfiguration?.wallDirection || 
-                           IsometricDirection.SOUTH;
+      const wallDirection = assetInstance.direction;
       
       // STEP 1: Get grid center position (same as tiles)
       const { isoX, isoY } = gridToIsometric(
@@ -539,7 +534,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       // Note: We don't set the anchor here anymore, applyWallPositioning handles it
       
       // Apply wall positioning (this handles sprite anchor and other adjustments)
-      this.applyWallPositioning(sprite, assetInstance, wallDirection, snap);
+      this.applyWallPositioning(sprite, assetInstance, assetInstance.direction, snap);
       
       // Apply visual effects
       this.applyVisualEffects(sprite, assetInstance, snap);
@@ -670,16 +665,16 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       settings = directionalBehavior.directionalSettings[assetInstance.direction];
     }
     
-    // FIXED: Apply sprite anchor (WHERE on sprite canvas to anchor)
-    // Use new sprite anchor system or fallback to deprecated fields
-    const spriteAnchorX = settings.spriteAnchor?.spriteAnchorX ?? settings.anchorX ?? 0.5;
-    const spriteAnchorY = settings.spriteAnchor?.spriteAnchorY ?? settings.anchorY ?? 1.0;
-    const useBoundingBoxAnchor = settings.spriteAnchor?.useBoundingBoxAnchor ?? false;
+    // Apply sprite anchor (WHERE on sprite canvas to anchor)
+    // NO FALLBACKS - settings must be properly initialized by the menu system
+    const spriteAnchorX = settings.spriteAnchor.spriteAnchorX;
+    const spriteAnchorY = settings.spriteAnchor.spriteAnchorY;
+    const useBoundingBoxAnchor = settings.spriteAnchor.useBoundingBoxAnchor;
     
     // Apply the sprite anchor (this determines WHERE on the sprite canvas)
     sprite.anchor.set(spriteAnchorX, spriteAnchorY);
     
-    // FIXED: If trimming is enabled, apply anchor to bounding box instead of full sprite
+    // If trimming is enabled, apply anchor to bounding box instead of full sprite
     if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
       // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
       const bbox = settings.spriteBoundingBox;
@@ -698,45 +693,26 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       console.log(`[ProcessedAssetsRenderer] Applied trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
     }
     
-    // Apply vertical positioning using manual vertical bias (tiles use manualVerticalBias now)
-    const verticalBias = settings.manualVerticalBias || 36;
-    
-    // FIXED: Apply all 4 directional invisible margins
-    const finalInvisibleMarginUp = settings.invisibleMarginUp || 0;
-    const finalInvisibleMarginDown = settings.invisibleMarginDown || 0;
-    const finalInvisibleMarginLeft = settings.invisibleMarginLeft || 0;
-    const finalInvisibleMarginRight = settings.invisibleMarginRight || 0;
-    
-    // Apply positioning based on snap position
-    if (assetInstance.snapPosition === 'above') {
-      const spriteScaledOffset = (verticalBias + finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
-      sprite.y += spriteScaledOffset * zoomLevel;
-    } else {
-      const spriteScaledOffset = (finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
-      sprite.y += spriteScaledOffset * zoomLevel;
-    }
-    
-    // Apply horizontal margins
-    const horizontalMarginOffset = (finalInvisibleMarginRight - finalInvisibleMarginLeft) * spriteScale;
-    sprite.x += horizontalMarginOffset * zoomLevel;
+    // FIXED: Only use horizontal and vertical offsets - no margins, no verticalBias
+    // Apply offsets (consistent with walls)
+    sprite.x += settings.horizontalOffset * zoomLevel;
+    sprite.y += settings.verticalOffset * zoomLevel;
     
     // Apply scale
     const finalScale = spriteScale * zoomLevel;
-    if (settings.keepProportions && settings.scaleX !== undefined) {
-      // If keeping proportions, use scaleX for both dimensions
+    if (settings.keepProportions) {
       sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleX);
     } else {
-      sprite.scale.set(finalScale * (settings.scaleX || 1.0), finalScale * (settings.scaleY || 1.0));
+      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
     }
     
     // Apply additional transformations
-    sprite.rotation = (settings.rotation || 0) * (Math.PI / 180);
-    sprite.alpha = settings.alpha || 1.0;
-    sprite.tint = settings.tint || 0xFFFFFF;
+    sprite.rotation = settings.rotation * (Math.PI / 180);
+    sprite.alpha = settings.alpha;
+    sprite.tint = settings.tint;
     
-    // Apply offsets
-    sprite.x += (settings.horizontalOffset || 0) * zoomLevel;
-    sprite.y += (settings.verticalOffset || 0) * zoomLevel;
+    // Apply diagonal offsets
+    this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
   }
   
   private applyWallPositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, wallDirection: IsometricDirection, snap: any): void {
@@ -753,16 +729,16 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       settings = directionalBehavior.directionalSettings[assetInstance.direction];
     }
     
-    // FIXED: Apply sprite anchor (WHERE on sprite canvas to anchor)
-    // Use new sprite anchor system or fallback to deprecated fields
-    const spriteAnchorX = settings.spriteAnchor?.spriteAnchorX ?? settings.anchorX ?? getWallSpriteAnchor(wallDirection).x;
-    const spriteAnchorY = settings.spriteAnchor?.spriteAnchorY ?? settings.anchorY ?? getWallSpriteAnchor(wallDirection).y;
-    const useBoundingBoxAnchor = settings.spriteAnchor?.useBoundingBoxAnchor ?? false;
+    // Apply sprite anchor (WHERE on sprite canvas to anchor)
+    // NO FALLBACKS - settings must be properly initialized by the menu system
+    const spriteAnchorX = settings.spriteAnchor.spriteAnchorX;
+    const spriteAnchorY = settings.spriteAnchor.spriteAnchorY;
+    const useBoundingBoxAnchor = settings.spriteAnchor.useBoundingBoxAnchor;
     
     // Apply the sprite anchor (this determines WHERE on the sprite canvas)
     sprite.anchor.set(spriteAnchorX, spriteAnchorY);
     
-    // FIXED: If trimming is enabled, apply anchor to bounding box instead of full sprite
+    // If trimming is enabled, apply anchor to bounding box instead of full sprite
     if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
       // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
       const bbox = settings.spriteBoundingBox;
@@ -781,34 +757,10 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       console.log(`[ProcessedAssetsRenderer] Applied wall trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
     }
     
-    // Apply vertical positioning using manual vertical bias only (walls don't use auto-computed)
-    const verticalBias = settings.manualVerticalBias || 36;
-    
-    // FIXED: Apply all 4 directional invisible margins for walls
-    const finalInvisibleMarginUp = settings.invisibleMarginUp || 0;
-    const finalInvisibleMarginDown = settings.invisibleMarginDown || 0;
-    const finalInvisibleMarginLeft = settings.invisibleMarginLeft || 0;
-    const finalInvisibleMarginRight = settings.invisibleMarginRight || 0;
-    
-    // Apply positioning based on snap position with proper scaling
-    if (assetInstance.snapPosition === 'above') {
-      const spriteScaledOffset = (verticalBias + finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
-      sprite.y += spriteScaledOffset * zoomLevel;
-    } else {
-      const spriteScaledOffset = (finalInvisibleMarginDown - finalInvisibleMarginUp) * spriteScale;
-      sprite.y += spriteScaledOffset * zoomLevel;
-    }
-    
-    // Apply horizontal margins
-    const horizontalMarginOffset = (finalInvisibleMarginRight - finalInvisibleMarginLeft) * spriteScale;
-    sprite.x += horizontalMarginOffset * zoomLevel;
-    
-    // Apply manual horizontal offset
-    const horizontalOffset = settings.manualHorizontalOffset || 0;
-    if (horizontalOffset !== 0) {
-      const spriteScaledHorizontalOffset = horizontalOffset * spriteScale;
-      sprite.x += spriteScaledHorizontalOffset * zoomLevel;
-    }
+    // FIXED: Only use horizontal and vertical offsets - no margins, no verticalBias, no manualHorizontalOffset
+    // Apply offsets (consistent with tiles)
+    sprite.x += settings.horizontalOffset * zoomLevel;
+    sprite.y += settings.verticalOffset * zoomLevel;
     
     // Apply diagonal offsets
     this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
@@ -818,17 +770,16 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     
     // Apply scale
     const finalScale = spriteScale * zoomLevel;
-    if (settings.keepProportions && settings.scaleX !== undefined) {
-      // If keeping proportions, use scaleX for both dimensions
+    if (settings.keepProportions) {
       sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleX);
     } else {
-      sprite.scale.set(finalScale * (settings.scaleX || 1.0), finalScale * (settings.scaleY || 1.0));
+      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
     }
   }
   
   private applyDiagonalOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, spriteScale: number, zoomLevel: number): void {
-    const diagonalNEOffset = settings.manualDiagonalNorthEastOffset || 0;
-    const diagonalNWOffset = settings.manualDiagonalNorthWestOffset || 0;
+    const diagonalNEOffset = settings.manualDiagonalNorthEastOffset;
+    const diagonalNWOffset = settings.manualDiagonalNorthWestOffset;
     
     if (diagonalNEOffset !== 0 || diagonalNWOffset !== 0) {
       const neXComponent = diagonalNEOffset * Math.cos(Math.PI / 6);
@@ -846,12 +797,14 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   }
   
   private applyWallRelativeOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, wallDirection: IsometricDirection, spriteScale: number, zoomLevel: number): void {
-    const relativeAlongEdge = settings.relativeAlongEdgeOffset || 0;
-    const relativeTowardCenter = settings.relativeTowardCenterOffset || 0;
-    const relativeDiagA = settings.relativeDiagonalAOffset || 0;
-    const relativeDiagB = settings.relativeDiagonalBOffset || 0;
+    const relativeAlongEdge = settings.relativeAlongEdgeOffset;
+    const relativeTowardCenter = settings.relativeTowardCenterOffset;
+    const relativeDiagA = settings.relativeDiagonalAOffset;
+    const relativeDiagB = settings.relativeDiagonalBOffset;
     
     if (relativeAlongEdge !== 0 || relativeTowardCenter !== 0 || relativeDiagA !== 0 || relativeDiagB !== 0) {
+      console.log(`[ProcessedAssetsRenderer] 🧱 Wall-relative positioning for ${['NORTH', 'EAST', 'SOUTH', 'WEST'][wallDirection]} wall: Edge=${relativeAlongEdge}, Center=${relativeTowardCenter}, DiagA=${relativeDiagA}, DiagB=${relativeDiagB}`);
+      
       let alongEdgeX = 0, alongEdgeY = 0;
       let towardCenterX = 0, towardCenterY = 0;
       let diagAX = 0, diagAY = 0;
@@ -860,7 +813,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       let diagASignMultiplier = 1;
       let diagBSignMultiplier = 1;
       
-      const useADivision = settings.useADivisionForNorthEast ?? true;
+      const useADivision = settings.useADivisionForNorthEast;
       
       switch (wallDirection) {
         case IsometricDirection.NORTH:

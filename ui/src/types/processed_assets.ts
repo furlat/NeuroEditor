@@ -267,15 +267,15 @@ export interface DirectionalPositioningSettings {
   readonly zIndex: number;                              // Additional Z-ordering within layer
   
   // Wall-specific positioning (from old system)
-  readonly manualHorizontalOffset?: number;
-  readonly manualDiagonalNorthEastOffset?: number;
-  readonly manualDiagonalNorthWestOffset?: number;
-  readonly relativeAlongEdgeOffset?: number;
-  readonly relativeTowardCenterOffset?: number;
-  readonly relativeDiagonalAOffset?: number;
-  readonly relativeDiagonalBOffset?: number;
-  readonly useADivisionForNorthEast?: boolean;
-  readonly useSpriteTrimmingForWalls?: boolean;
+  readonly manualHorizontalOffset: number;
+  readonly manualDiagonalNorthEastOffset: number;
+  readonly manualDiagonalNorthWestOffset: number;
+  readonly relativeAlongEdgeOffset: number;
+  readonly relativeTowardCenterOffset: number;
+  readonly relativeDiagonalAOffset: number;
+  readonly relativeDiagonalBOffset: number;
+  readonly useADivisionForNorthEast: boolean;
+  readonly useSpriteTrimmingForWalls: boolean;
   
   // Sprite bounding box data (for trimming)
   readonly spriteBoundingBox?: {
@@ -321,15 +321,16 @@ export interface MutableDirectionalPositioningSettings {
   useCustomAnchor: boolean;                    // DEPRECATED: Use spriteAnchor.useDefaultSpriteAnchor
   zIndex: number;
   
-  manualHorizontalOffset?: number;
-  manualDiagonalNorthEastOffset?: number;
-  manualDiagonalNorthWestOffset?: number;
-  relativeAlongEdgeOffset?: number;
-  relativeTowardCenterOffset?: number;
-  relativeDiagonalAOffset?: number;
-  relativeDiagonalBOffset?: number;
-  useADivisionForNorthEast?: boolean;
-  useSpriteTrimmingForWalls?: boolean;
+  // Wall positioning - NO LONGER OPTIONAL
+  manualHorizontalOffset: number;
+  manualDiagonalNorthEastOffset: number;
+  manualDiagonalNorthWestOffset: number;
+  relativeAlongEdgeOffset: number;
+  relativeTowardCenterOffset: number;
+  relativeDiagonalAOffset: number;
+  relativeDiagonalBOffset: number;
+  useADivisionForNorthEast: boolean;
+  useSpriteTrimmingForWalls: boolean;
   spriteBoundingBox?: {
     originalWidth: number;
     originalHeight: number;
@@ -580,36 +581,91 @@ export function generateProcessedAssetId(): ProcessedAssetId {
 }
 
 /**
+ * Calculate auto-computed positioning based on sprite dimensions (same formula as IsometricEditor)
+ * This should ONLY be used for setting defaults - the actual auto-computation should happen in the UI when needed
+ */
+export function calculateAutoComputedPositioning(
+  spriteWidth: number = 100, 
+  spriteHeight: number = 100,
+  useBoundingBoxAnchor: boolean = true,  // NEW: Default to cropped sprite anchoring
+  spriteName?: string,                   // NEW: Optional sprite name for custom rules
+  assetType?: ProcessedAssetType         // NEW: Optional asset type for custom rules
+): {
+  autoComputedVerticalBias: number;
+  verticalOffset: number;
+  horizontalOffset: number;
+} {
+  let normalizedWidth: number;
+  let normalizedHeight: number;
+  
+  // FIXED: Since margins are no longer used for drawing, we don't use them in calculations anymore
+  // Use dimensions directly (no margins in the new system)
+  normalizedWidth = spriteWidth;
+  normalizedHeight = spriteHeight;
+  
+  console.log(`[calculateAutoComputedPositioning] No margins mode: ${spriteWidth}x${spriteHeight} → normalized ${normalizedWidth}x${normalizedHeight}`);
+  
+  // USER'S EXACT FORMULA: normalized height - (normalized width / 2)
+  let autoComputedVerticalBias = normalizedHeight - (normalizedWidth / 2);
+  
+  // NEW: For ALL TILES, snap to either 44 or 204
+  if (assetType === ProcessedAssetType.TILE) {
+    const originalValue = autoComputedVerticalBias;
+    const distanceTo44 = Math.abs(autoComputedVerticalBias - 44);
+    const distanceTo204 = Math.abs(autoComputedVerticalBias - 204);
+    
+    if (distanceTo44 <= distanceTo204) {
+      autoComputedVerticalBias = 44;
+    } else {
+      autoComputedVerticalBias = 204;
+    }
+    
+    console.log(`[calculateAutoComputedPositioning] 🎯 Tile snapping rule: ${originalValue} → snapped to ${autoComputedVerticalBias}`);
+  }
+  
+  // For now, use ROUND_DOWN as default (most common)
+  const roundedBias = Math.floor(autoComputedVerticalBias);
+  
+  console.log(`[calculateAutoComputedPositioning] Formula result: ${autoComputedVerticalBias} → rounded: ${roundedBias}`);
+  
+  // NEW: Default horizontalOffset = 1 for tiles, 0 for others
+  const defaultHorizontalOffset = assetType === ProcessedAssetType.TILE ? 1 : 0;
+  
+  return {
+    autoComputedVerticalBias: roundedBias,
+    verticalOffset: roundedBias,  // FIXED: Put calculated value into verticalOffset  
+    horizontalOffset: defaultHorizontalOffset,  // NEW: offsetX = 1 for tiles, 0 for walls
+  };
+}
+
+/**
  * Create default directional positioning settings
  */
-export function createDefaultDirectionalSettings(): MutableDirectionalPositioningSettings {
-  return {
-    // Core positioning (same as existing system)
-    invisibleMarginUp: 8,
-    invisibleMarginDown: 8,
-    invisibleMarginLeft: 8,
-    invisibleMarginRight: 8,
-    autoComputedVerticalBias: 36,
-    useAutoComputed: true,
-    manualVerticalBias: 36,
+export function createDefaultDirectionalSettings(
+  assetType: ProcessedAssetType = ProcessedAssetType.TILE,
+  wallDirection?: IsometricDirection
+): MutableDirectionalPositioningSettings {
+  // FIXED: Don't calculate auto-computed during initialization - use placeholder
+  // Real calculation happens later when we have actual sprite dimensions
+  const positioning = calculateAutoComputedPositioning(100, 100, true, undefined, assetType);
+  
+  const settings: MutableDirectionalPositioningSettings = {
+    // Core positioning
+    invisibleMarginUp: 0,        // FIXED: Start with 0 since margins no longer used for drawing
+    invisibleMarginDown: 0,      // FIXED: Start with 0 since margins no longer used for drawing  
+    invisibleMarginLeft: 0,      // FIXED: Start with 0 since margins no longer used for drawing
+    invisibleMarginRight: 0,     // FIXED: Start with 0 since margins no longer used for drawing
+    autoComputedVerticalBias: 0, // PLACEHOLDER: Will be recalculated with actual sprite data
+    useAutoComputed: assetType === ProcessedAssetType.TILE, // Only tiles use auto mode by default
+    manualVerticalBias: 0,       // PLACEHOLDER: Will be set when we have real data
     
-    // FIXED: Default anchor configurations
-    gridAnchor: {
-      gridAnchorPoint: GridAnchorPoint.CENTER,  // Default for tiles
-      gridAnchorX: 0.5,
-      gridAnchorY: 0.5,
-      useDefaultGridAnchor: true
-    },
-    spriteAnchor: {
-      spriteAnchorX: 0.5,     // Center horizontally
-      spriteAnchorY: 1.0,     // Bottom vertically (standard for isometric)
-      useDefaultSpriteAnchor: true,
-      useBoundingBoxAnchor: false
-    },
+    // FIXED: Separate anchor systems
+    gridAnchor: getDefaultGridAnchor(assetType, wallDirection),
+    spriteAnchor: getDefaultSpriteAnchor(assetType, wallDirection),
     
     // Enhanced positioning
-    horizontalOffset: 0,
-    verticalOffset: 0,
+    horizontalOffset: positioning.horizontalOffset,  // Use default horizontalOffset = 1 for tiles
+    verticalOffset: 0,           // PLACEHOLDER: Will be calculated with real data
     scaleX: 1.0,
     scaleY: 1.0,
     keepProportions: true,
@@ -617,23 +673,26 @@ export function createDefaultDirectionalSettings(): MutableDirectionalPositionin
     alpha: 1.0,
     tint: 0xFFFFFF,
     
-    // DEPRECATED: Keep for backward compatibility
+    // DEPRECATED fields (maintain for compatibility)
     anchorX: 0.5,
     anchorY: 1.0,
     useCustomAnchor: false,
     zIndex: 0,
     
-    // Wall-specific (optional)
+    // Wall positioning
     manualHorizontalOffset: 0,
     manualDiagonalNorthEastOffset: 0,
     manualDiagonalNorthWestOffset: 0,
     relativeAlongEdgeOffset: 0,
     relativeTowardCenterOffset: 0,
-    relativeDiagonalAOffset: 0,
-    relativeDiagonalBOffset: 0,
+    relativeDiagonalAOffset: wallDirection !== undefined ? 8 : 0,  // A=8 for walls
+    relativeDiagonalBOffset: wallDirection !== undefined ? 3 : 0,  // B=3 for walls  
     useADivisionForNorthEast: true,
-    useSpriteTrimmingForWalls: false,
+    useSpriteTrimmingForWalls: assetType === ProcessedAssetType.WALL,
+    spriteBoundingBox: undefined // Will be computed when sprite is analyzed
   };
+  
+  return settings;
 }
 
 /**
@@ -677,6 +736,7 @@ export function createDefaultProcessedAsset(
 ): MutableProcessedAssetDefinition {
   const id = generateProcessedAssetId();
   const now = new Date().toISOString();
+  const assetType = category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE;
   
   return {
     // Core identity
@@ -684,7 +744,7 @@ export function createDefaultProcessedAsset(
     displayName: 'New Asset',
     category,
     subcategory,
-    assetType: category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE,
+    assetType,
     version: 1,
     createdAt: now,
     lastModified: now,
@@ -697,13 +757,13 @@ export function createDefaultProcessedAsset(
     
     // Directional behavior
     directionalBehavior: {
-      useSharedSettings: true,
-      sharedSettings: createDefaultDirectionalSettings(),
+      useSharedSettings: true, // FIXED: Both tiles and walls start with shared settings by default
+      sharedSettings: createDefaultDirectionalSettings(assetType, IsometricDirection.NORTH),
       directionalSettings: {
-        [IsometricDirection.NORTH]: createDefaultDirectionalSettings(),
-        [IsometricDirection.EAST]: createDefaultDirectionalSettings(),
-        [IsometricDirection.SOUTH]: createDefaultDirectionalSettings(),
-        [IsometricDirection.WEST]: createDefaultDirectionalSettings(),
+        [IsometricDirection.NORTH]: createDefaultDirectionalSettings(assetType, IsometricDirection.NORTH),
+        [IsometricDirection.EAST]: createDefaultDirectionalSettings(assetType, IsometricDirection.EAST),
+        [IsometricDirection.SOUTH]: createDefaultDirectionalSettings(assetType, IsometricDirection.SOUTH),
+        [IsometricDirection.WEST]: createDefaultDirectionalSettings(assetType, IsometricDirection.WEST),
       },
     },
     
@@ -810,48 +870,22 @@ export function getDefaultGridAnchor(assetType: ProcessedAssetType, wallDirectio
 }
 
 export function getDefaultSpriteAnchor(assetType: ProcessedAssetType, wallDirection?: IsometricDirection): MutableSpriteAnchorConfig {
-  switch (assetType) {
-    case ProcessedAssetType.TILE:
-      return {
-        spriteAnchorX: 0.5, // Center horizontally
-        spriteAnchorY: 1.0, // Bottom vertically (standard for isometric tiles)
-        useDefaultSpriteAnchor: true,
-        useBoundingBoxAnchor: false
-      };
-      
-    case ProcessedAssetType.WALL:
-      // Use the same logic as getWallSpriteAnchor from isometricUtils
-      let anchorX = 0.5, anchorY = 1.0; // Default fallback
-      
-      switch (wallDirection) {
-        case IsometricDirection.NORTH:
-          anchorX = 0.5; anchorY = 1.0; // Center-bottom
-          break;
-        case IsometricDirection.EAST:
-          anchorX = 0.0; anchorY = 1.0; // Left-bottom
-          break;
-        case IsometricDirection.SOUTH:
-          anchorX = 0.5; anchorY = 0.0; // Center-top
-          break;
-        case IsometricDirection.WEST:
-          anchorX = 1.0; anchorY = 1.0; // Right-bottom
-          break;
-      }
-      
-      return {
-        spriteAnchorX: anchorX,
-        spriteAnchorY: anchorY,
-        useDefaultSpriteAnchor: true,
-        useBoundingBoxAnchor: false
-      };
-      
-    default:
-      return {
-        spriteAnchorX: 0.5,
-        spriteAnchorY: 1.0,
-        useDefaultSpriteAnchor: true,
-        useBoundingBoxAnchor: false
-      };
+  if (assetType === ProcessedAssetType.WALL) {
+    // Walls use bottom-center anchoring by default
+    return {
+      spriteAnchorX: 0.5,
+      spriteAnchorY: 1.0,
+      useDefaultSpriteAnchor: true,
+      useBoundingBoxAnchor: true  // FIXED: Default to cropped sprite anchoring
+    };
+  } else {
+    // Tiles use bottom-center anchoring by default
+    return {
+      spriteAnchorX: 0.5,
+      spriteAnchorY: 1.0,
+      useDefaultSpriteAnchor: true,
+      useBoundingBoxAnchor: true  // FIXED: Default to cropped sprite anchoring
+    };
   }
 }
 

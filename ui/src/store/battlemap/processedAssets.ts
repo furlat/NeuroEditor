@@ -10,18 +10,21 @@
  */
 
 import { battlemapStore, forceRerender } from './core';
-import { IsometricDirection } from '../../game/managers/IsometricSpriteManager';
+import { IsometricDirection, isometricSpriteManager } from '../../game/managers/IsometricSpriteManager';
 import {
   ProcessedAssetId,
-  AssetCategory,
-  ProcessedAssetType,
   MutableProcessedAssetDefinition,
   TemporaryAssetState,
-  ProcessingOperation,
-  createDefaultDirectionalSettings,
-  createDefaultGameplayProperties,
+  createDefaultProcessedAsset,
+  AssetCategory,
+  AssetSubcategory,
+  ProcessedAssetType,
   generateProcessedAssetId,
   AssetPreviewConfiguration,
+  validateProcessedAsset,
+  createDefaultDirectionalSettings,
+  createDefaultGameplayProperties,
+  calculateAutoComputedPositioning
 } from '../../types/processed_assets';
 import { Position } from '../../types/common';
 
@@ -310,12 +313,12 @@ export const assetCreationActions = {
       },
       directionalBehavior: {
         useSharedSettings: true,
-        sharedSettings: createDefaultDirectionalSettings(),
+        sharedSettings: createDefaultDirectionalSettings(category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE),
         directionalSettings: {
-          [IsometricDirection.NORTH]: createDefaultDirectionalSettings(),
-          [IsometricDirection.EAST]: createDefaultDirectionalSettings(),
-          [IsometricDirection.SOUTH]: createDefaultDirectionalSettings(),
-          [IsometricDirection.WEST]: createDefaultDirectionalSettings(),
+          [IsometricDirection.NORTH]: createDefaultDirectionalSettings(category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE, IsometricDirection.NORTH),
+          [IsometricDirection.EAST]: createDefaultDirectionalSettings(category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE, IsometricDirection.EAST),
+          [IsometricDirection.SOUTH]: createDefaultDirectionalSettings(category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE, IsometricDirection.SOUTH),
+          [IsometricDirection.WEST]: createDefaultDirectionalSettings(category === AssetCategory.WALL ? ProcessedAssetType.WALL : ProcessedAssetType.TILE, IsometricDirection.WEST),
         },
       },
       gameplayProperties: {
@@ -430,9 +433,39 @@ export const assetCreationActions = {
   updateTemporaryAsset: (updates: Partial<TemporaryAssetState>) => {
     const temporaryAsset = battlemapStore.processedAssets.temporaryAsset;
     if (temporaryAsset) {
+      // Check if sourceImagePath is being updated for first time
+      const isSourceImageUpdate = updates.sourceProcessing?.sourceImagePath && 
+                                  !temporaryAsset.sourceProcessing.sourceImagePath;
+      
       Object.assign(temporaryAsset, updates);
       temporaryAsset.hasUnsavedChanges = true;
       temporaryAsset.lastModified = new Date().toISOString();
+      
+      // If source image path was set for the first time, run auto-calculation
+      if (isSourceImageUpdate) {
+        console.log('[ProcessedAssets] 🚀 Source image path set, triggering auto-calculation...');
+        console.log('[ProcessedAssets] 📝 Source path:', updates.sourceProcessing?.sourceImagePath);
+        console.log('[ProcessedAssets] 🎯 Asset type:', temporaryAsset.assetType);
+        console.log('[ProcessedAssets] 🔧 Asset settings preview:', temporaryAsset.directionalBehavior.useSharedSettings ? 'shared' : 'per-direction');
+        
+        // Try immediate calculation
+        const success = performAutoCalculationForAsset(temporaryAsset);
+        
+        if (!success) {
+          console.log('[ProcessedAssets] ⏰ Immediate calculation failed, trying with delay...');
+          // If immediate fails (sprite not loaded), try with delays
+          setTimeout(() => {
+            console.log('[ProcessedAssets] ⏰ Retrying auto-calculation (100ms delay)...');
+            const delayed = performAutoCalculationForAsset(temporaryAsset);
+            if (!delayed) {
+              setTimeout(() => {
+                console.log('[ProcessedAssets] ⏰ Final retry auto-calculation (500ms delay)...');
+                performAutoCalculationForAsset(temporaryAsset);
+              }, 400);
+            }
+          }, 100);
+        }
+      }
       
       // TODO: Run validation
       assetCreationActions.validateTemporaryAsset();
@@ -446,32 +479,15 @@ export const assetCreationActions = {
    */
   validateTemporaryAsset: () => {
     const temporaryAsset = battlemapStore.processedAssets.temporaryAsset;
-    if (!temporaryAsset) return;
+    if (!temporaryAsset) return { isValid: false, errors: ['No temporary asset'] };
     
-    const errors: string[] = [];
+    const result = validateProcessedAsset(temporaryAsset);
+    temporaryAsset.isValid = result.isValid;
+    temporaryAsset.validationErrors = result.errors;
     
-    // Basic validation
-    if (!temporaryAsset.displayName.trim()) {
-      errors.push('Display name is required');
-    }
+    console.log(`[ProcessedAssets] Validated asset: ${result.isValid ? 'VALID' : 'INVALID'} (${result.errors.length} errors)`);
     
-    if (!temporaryAsset.sourceProcessing.sourceImagePath) {
-      errors.push('Source image is required');
-    }
-    
-    // Update validation state
-    temporaryAsset.isValid = errors.length === 0;
-    temporaryAsset.validationErrors = errors;
-    
-    console.log(`[ProcessedAssets] Validated asset: ${errors.length === 0 ? 'VALID' : 'INVALID'} (${errors.length} errors)`);
-  },
-  
-  /**
-   * Set the current creation step
-   */
-  setCreationStep: (step: 'source' | 'processing' | 'directional' | 'gameplay' | 'preview') => {
-    battlemapStore.processedAssets.assetCreation.currentStep = step;
-    forceRerender();
+    return result;
   },
 };
 
@@ -688,6 +704,90 @@ export const assetPlacementActions = {
     return battlemapStore.processedAssets.assetPlacement;
   },
 };
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * AUTO-CALCULATION UTILITY: Extracted from handleRecalculate to be reusable
+ */
+function performAutoCalculationForAsset(temporaryAsset: TemporaryAssetState): boolean {
+  if (!temporaryAsset.sourceProcessing.sourceImagePath) {
+    console.log('[Auto-Calc] ⚠️ No source image path set');
+    return false;
+  }
+  
+  // Get sprite name from source path (simple extraction)
+  const sourceFileName = temporaryAsset.sourceProcessing.sourceImagePath.split('/').pop();
+  const spriteName = sourceFileName?.replace('.png', '') || '';
+  
+  if (!spriteName) {
+    console.log('[Auto-Calc] ⚠️ Could not extract sprite name from path');
+    return false;
+  }
+  
+  if (!isometricSpriteManager.isSpriteLoaded(spriteName)) {
+    console.log(`[Auto-Calc] ⚠️ Sprite not loaded yet: ${spriteName}`);
+    return false;
+  }
+  
+  try {
+    const spriteFrameSize = isometricSpriteManager.getSpriteFrameSize(spriteName);
+    if (!spriteFrameSize) {
+      console.log(`[Auto-Calc] ⚠️ Could not get sprite frame size for: ${spriteName}`);
+      return false;
+    }
+    
+    console.log(`[Auto-Calc] 🔄 Auto-calculating for ${spriteName}: ${spriteFrameSize.width}x${spriteFrameSize.height}`);
+    
+    // Get current settings for bounding box anchor setting
+    const directionalBehavior = temporaryAsset.directionalBehavior;
+    let settings;
+    if (directionalBehavior.useSharedSettings) {
+      settings = directionalBehavior.sharedSettings;
+    } else {
+      settings = directionalBehavior.directionalSettings[IsometricDirection.NORTH]; // Use NORTH as default
+    }
+    
+    const useBoundingBoxAnchor = settings.spriteAnchor?.useBoundingBoxAnchor || false;
+    
+    // EXACT SAME LOGIC AS handleRecalculate
+    const calculatedPositioning = calculateAutoComputedPositioning(
+      spriteFrameSize.width,
+      spriteFrameSize.height,
+      useBoundingBoxAnchor,
+      spriteName,
+      temporaryAsset.assetType
+    );
+    
+    console.log(`[Auto-Calc] 🎯 Calculated positioning:`, calculatedPositioning);
+    
+    // Update ALL directional settings (both shared and per-direction) - EXACT SAME LOGIC
+    const updateSettings = (targetSettings: any) => {
+      targetSettings.autoComputedVerticalBias = calculatedPositioning.autoComputedVerticalBias;
+      targetSettings.manualVerticalBias = calculatedPositioning.autoComputedVerticalBias; // Set manual to computed value
+      targetSettings.verticalOffset = calculatedPositioning.verticalOffset;
+      targetSettings.horizontalOffset = calculatedPositioning.horizontalOffset;
+    };
+    
+    // Update shared settings
+    updateSettings(directionalBehavior.sharedSettings);
+    
+    // Update all directional settings
+    updateSettings(directionalBehavior.directionalSettings[IsometricDirection.NORTH]);
+    updateSettings(directionalBehavior.directionalSettings[IsometricDirection.EAST]);
+    updateSettings(directionalBehavior.directionalSettings[IsometricDirection.SOUTH]);
+    updateSettings(directionalBehavior.directionalSettings[IsometricDirection.WEST]);
+    
+    console.log(`[Auto-Calc] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}`);
+    
+    return true;
+  } catch (error) {
+    console.error(`[Auto-Calc] ❌ Error in auto-calculation:`, error);
+    return false;
+  }
+}
 
 // ============================================================================
 // COMBINED EXPORT
