@@ -12,7 +12,9 @@ import {
   ProcessedAssetId,
   MutableProcessedAssetDefinition,
   ProcessedAssetType,
-  MutableDirectionalPositioningSettings
+  MutableDirectionalPositioningSettings,
+  getSpriteAnchorCoordinates,
+  SpriteAnchorPoint
 } from '../../types/processed_assets';
 
 // Interface for renderable asset instances
@@ -438,8 +440,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       
       // Apply base position + grid anchor offset
       sprite.x = isometricOffset.offsetX + isoX + gridAnchorOffset.x;
-      const zoomedDiamondHeight = isometricOffset.tileSize / 2;
-      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2) + gridAnchorOffset.y;
+      sprite.y = isometricOffset.offsetY + isoY + gridAnchorOffset.y;
       
       // Apply Z offset
       const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
@@ -448,8 +449,8 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
       }
       
-      // Apply tile positioning (this handles sprite anchor and other adjustments)
-      this.applyTilePositioning(sprite, assetInstance, snap);
+      // Apply unified positioning (works for both tiles and walls)
+      this.applyAssetPositioning(sprite, assetInstance, snap);
       
       // Apply visual effects
       this.applyVisualEffects(sprite, assetInstance, snap);
@@ -462,88 +463,8 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
   }
   
   private renderSingleWallAsset(assetInstance: RenderableAssetInstance): void {
-    try {
-      const texture = this.getAssetTexture(assetInstance);
-      if (!texture) return;
-      
-      const instanceKey = `${assetInstance.assetId}_${assetInstance.instanceId}`;
-      let sprite = this.activeAssetSprites.get(instanceKey);
-      
-      if (!sprite) {
-        sprite = this.getPooledSprite();
-        this.activeAssetSprites.set(instanceKey, sprite);
-        this.assetsContainer.addChild(sprite);
-      }
-      
-      sprite.texture = texture;
-      
-      // Calculate wall edge position
-      const snap = battlemapStore;
-      const isometricOffset = calculateIsometricGridOffset(
-        this.engine?.containerSize?.width || 0,
-        this.engine?.containerSize?.height || 0,
-        snap.grid.width,
-        snap.grid.height,
-        snap.view.gridDiamondWidth,
-        snap.view.offset.x,
-        snap.view.offset.y,
-        ENTITY_PANEL_WIDTH,
-        snap.view.zoomLevel
-      );
-      
-      // Use wall direction from instance or asset configuration
-      const wallDirection = assetInstance.direction;
-      
-      // STEP 1: Get grid center position (same as tiles)
-      const { isoX, isoY } = gridToIsometric(
-        assetInstance.position[0], 
-        assetInstance.position[1], 
-        isometricOffset.tileSize
-      );
-      
-      // STEP 2: NEW - Apply Grid Anchor offset instead of hardcoded edge position
-      const directionalBehavior = assetInstance.asset.directionalBehavior;
-      let settings: MutableDirectionalPositioningSettings;
-      
-      if (directionalBehavior.useSharedSettings) {
-        settings = directionalBehavior.sharedSettings;
-      } else {
-        settings = directionalBehavior.directionalSettings[assetInstance.direction];
-      }
-      
-      // Calculate grid anchor offset (walls should use edge anchors by default)
-      const gridAnchorOffset = this.calculateGridAnchorOffset(
-        settings.gridAnchor,
-        snap.view.gridDiamondWidth,
-        snap.view.zoomLevel
-      );
-      
-      // Apply base position + grid anchor offset
-      sprite.x = isometricOffset.offsetX + isoX + gridAnchorOffset.x;
-      const zoomedDiamondHeight = isometricOffset.tileSize / 2;
-      sprite.y = isometricOffset.offsetY + isoY + (zoomedDiamondHeight / 2) + gridAnchorOffset.y;
-      
-      // Apply Z offset
-      const zLayerConfigs = battlemapActions.getAllZLayerConfigs();
-      const zLayerConfig = zLayerConfigs[assetInstance.zLevel];
-      if (zLayerConfig) {
-        sprite.y -= zLayerConfig.verticalOffset * snap.view.zoomLevel;
-      }
-      
-      // STEP 3: Apply sprite anchor (this is handled in applyWallPositioning)
-      // Note: We don't set the anchor here anymore, applyWallPositioning handles it
-      
-      // Apply wall positioning (this handles sprite anchor and other adjustments)
-      this.applyWallPositioning(sprite, assetInstance, assetInstance.direction, snap);
-      
-      // Apply visual effects
-      this.applyVisualEffects(sprite, assetInstance, snap);
-      
-      sprite.visible = true;
-      
-    } catch (error) {
-      console.error('[ProcessedAssetsRenderer] Error rendering wall asset:', error, assetInstance);
-    }
+    // UNIFIED: Walls now use the same method as tiles
+    this.renderSingleTileAsset(assetInstance);
   }
   
   private getAssetTexture(assetInstance: RenderableAssetInstance): Texture | null {
@@ -615,22 +536,26 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
         break;
         
       case 'north_corner':
+        // FIXED: North corner is at the top point of the diamond
         offsetX = 0;
-        offsetY = -quarterDiamondHeight;
+        offsetY = -quarterDiamondHeight * 2; // Full diamond height/2
         break;
         
       case 'east_corner':
-        offsetX = halfDiamondWidth;
+        // FIXED: East corner is at the right point of the diamond
+        offsetX = halfDiamondWidth * 2; // Full diamond width/2
         offsetY = 0;
         break;
         
       case 'south_corner':
+        // FIXED: South corner is at the bottom point of the diamond
         offsetX = 0;
-        offsetY = quarterDiamondHeight;
+        offsetY = quarterDiamondHeight * 2; // Full diamond height/2
         break;
         
       case 'west_corner':
-        offsetX = -halfDiamondWidth;
+        // FIXED: West corner is at the left point of the diamond
+        offsetX = -halfDiamondWidth * 2; // Full diamond width/2
         offsetY = 0;
         break;
         
@@ -651,7 +576,7 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     return { x: offsetX, y: offsetY };
   }
   
-  private applyTilePositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, snap: any): void {
+  private applyAssetPositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, snap: any): void {
     const spriteScale = snap.view.spriteScale;
     const zoomLevel = snap.view.zoomLevel;
     
@@ -667,36 +592,56 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
     
     // Apply sprite anchor (WHERE on sprite canvas to anchor)
     // NO FALLBACKS - settings must be properly initialized by the menu system
-    const spriteAnchorX = settings.spriteAnchor.spriteAnchorX;
-    const spriteAnchorY = settings.spriteAnchor.spriteAnchorY;
-    const useBoundingBoxAnchor = settings.spriteAnchor.useBoundingBoxAnchor;
+    const spriteAnchorConfig = settings.spriteAnchor;
+    let spriteAnchorX: number, spriteAnchorY: number;
+    
+    // Use the new SpriteAnchorPoint system for intuitive anchor selection
+    if (spriteAnchorConfig.spriteAnchorPoint === SpriteAnchorPoint.CUSTOM) {
+      // Use custom coordinates
+      spriteAnchorX = spriteAnchorConfig.spriteAnchorX;
+      spriteAnchorY = spriteAnchorConfig.spriteAnchorY;
+    } else {
+      // Calculate coordinates from the predefined anchor point
+      const anchorCoords = getSpriteAnchorCoordinates(spriteAnchorConfig.spriteAnchorPoint);
+      spriteAnchorX = anchorCoords.x;
+      spriteAnchorY = anchorCoords.y;
+    }
+    
+    const useBoundingBoxAnchor = spriteAnchorConfig.useBoundingBoxAnchor;
     
     // Apply the sprite anchor (this determines WHERE on the sprite canvas)
     sprite.anchor.set(spriteAnchorX, spriteAnchorY);
     
     // If trimming is enabled, apply anchor to bounding box instead of full sprite
     if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
-      // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
+      // FIXED: Simple direct offset calculation
       const bbox = settings.spriteBoundingBox;
       
-      // Calculate where the current anchor point is within the bounding box
-      const anchorXInBbox = bbox.boundingX + (spriteAnchorX * bbox.boundingWidth);
-      const anchorYInBbox = bbox.boundingY + (spriteAnchorY * bbox.boundingHeight);
+      // When using bounding box anchor, we need to shift the sprite position
+      // by the bounding box offset to account for the trimmed transparent area
+      const offsetX = bbox.boundingX;  // Horizontal offset of trimmed area
+      const offsetY = bbox.boundingY;  // Vertical offset of trimmed area
       
-      // Convert back to full sprite coordinates (0-1 range)
-      const adjustedSpriteAnchorX = anchorXInBbox / bbox.originalWidth;
-      const adjustedSpriteAnchorY = anchorYInBbox / bbox.originalHeight;
+      // Apply the offset to sprite position (scaled by zoom)
+      sprite.x -= offsetX * zoomLevel;  // Subtract because trimmed area starts inside original
+      sprite.y -= offsetY * zoomLevel;  // Subtract because trimmed area starts inside original
       
-      // Apply the adjusted anchor
-      sprite.anchor.set(adjustedSpriteAnchorX, adjustedSpriteAnchorY);
-      
-      console.log(`[ProcessedAssetsRenderer] Applied trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
+      console.log(`[ProcessedAssetsRenderer] Bounding box offset: trimmed area starts at (${bbox.boundingX}, ${bbox.boundingY}), applying offset (-${offsetX}, -${offsetY})`);
     }
     
-    // FIXED: Only use horizontal and vertical offsets - no margins, no verticalBias
-    // Apply offsets (consistent with walls)
+    // Apply horizontal offset
     sprite.x += settings.horizontalOffset * zoomLevel;
-    sprite.y += settings.verticalOffset * zoomLevel;
+    
+    // NEW: Apply above/below positioning logic for Y offset
+    if (settings.useAbovePositioning) {
+      // Above positioning: current Y - snapAboveYOffset (non-snapped offset)
+      const aboveYOffset = settings.verticalOffset - (settings.snapAboveYOffset || 0);
+      sprite.y += aboveYOffset * zoomLevel;
+      console.log(`[ProcessedAssetsRenderer] 🔺 Above positioning: Y offset = ${settings.verticalOffset} - ${settings.snapAboveYOffset} = ${aboveYOffset}`);
+    } else {
+      // Below positioning: use normal verticalOffset (existing behavior)
+      sprite.y += settings.verticalOffset * zoomLevel;
+    }
     
     // Apply scale
     const finalScale = spriteScale * zoomLevel;
@@ -706,75 +651,18 @@ export class ProcessedAssetsRenderer extends AbstractRenderer {
       sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
     }
     
-    // Apply additional transformations
+    // Apply diagonal offsets
+    this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
+    
+    // Apply wall-relative offsets (only for wall assets)
+    if (assetInstance.assetType === ProcessedAssetType.WALL) {
+      this.applyWallRelativeOffsets(sprite, settings, assetInstance.direction, spriteScale, zoomLevel);
+    }
+    
+    // Apply additional transformations (FIXED: was missing from wall method)
     sprite.rotation = settings.rotation * (Math.PI / 180);
     sprite.alpha = settings.alpha;
     sprite.tint = settings.tint;
-    
-    // Apply diagonal offsets
-    this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
-  }
-  
-  private applyWallPositioning(sprite: Sprite, assetInstance: RenderableAssetInstance, wallDirection: IsometricDirection, snap: any): void {
-    const spriteScale = snap.view.spriteScale;
-    const zoomLevel = snap.view.zoomLevel;
-    
-    // Get directional settings
-    const directionalBehavior = assetInstance.asset.directionalBehavior;
-    let settings: MutableDirectionalPositioningSettings;
-    
-    if (directionalBehavior.useSharedSettings) {
-      settings = directionalBehavior.sharedSettings;
-    } else {
-      settings = directionalBehavior.directionalSettings[assetInstance.direction];
-    }
-    
-    // Apply sprite anchor (WHERE on sprite canvas to anchor)
-    // NO FALLBACKS - settings must be properly initialized by the menu system
-    const spriteAnchorX = settings.spriteAnchor.spriteAnchorX;
-    const spriteAnchorY = settings.spriteAnchor.spriteAnchorY;
-    const useBoundingBoxAnchor = settings.spriteAnchor.useBoundingBoxAnchor;
-    
-    // Apply the sprite anchor (this determines WHERE on the sprite canvas)
-    sprite.anchor.set(spriteAnchorX, spriteAnchorY);
-    
-    // If trimming is enabled, apply anchor to bounding box instead of full sprite
-    if (useBoundingBoxAnchor && settings.spriteBoundingBox) {
-      // CRITICAL: Don't change the anchor coordinates - change which rectangle they apply to
-      const bbox = settings.spriteBoundingBox;
-      
-      // Calculate where the current anchor point is within the bounding box
-      const anchorXInBbox = bbox.boundingX + (spriteAnchorX * bbox.boundingWidth);
-      const anchorYInBbox = bbox.boundingY + (spriteAnchorY * bbox.boundingHeight);
-      
-      // Convert back to full sprite coordinates (0-1 range)
-      const adjustedSpriteAnchorX = anchorXInBbox / bbox.originalWidth;
-      const adjustedSpriteAnchorY = anchorYInBbox / bbox.originalHeight;
-      
-      // Apply the adjusted anchor
-      sprite.anchor.set(adjustedSpriteAnchorX, adjustedSpriteAnchorY);
-      
-      console.log(`[ProcessedAssetsRenderer] Applied wall trimmed anchor: sprite(${spriteAnchorX}, ${spriteAnchorY}) -> bbox(${anchorXInBbox}, ${anchorYInBbox}) -> adjusted(${adjustedSpriteAnchorX.toFixed(3)}, ${adjustedSpriteAnchorY.toFixed(3)})`);
-    }
-    
-    // FIXED: Only use horizontal and vertical offsets - no margins, no verticalBias, no manualHorizontalOffset
-    // Apply offsets (consistent with tiles)
-    sprite.x += settings.horizontalOffset * zoomLevel;
-    sprite.y += settings.verticalOffset * zoomLevel;
-    
-    // Apply diagonal offsets
-    this.applyDiagonalOffsets(sprite, settings, spriteScale, zoomLevel);
-    
-    // Apply wall-relative offsets
-    this.applyWallRelativeOffsets(sprite, settings, wallDirection, spriteScale, zoomLevel);
-    
-    // Apply scale
-    const finalScale = spriteScale * zoomLevel;
-    if (settings.keepProportions) {
-      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleX);
-    } else {
-      sprite.scale.set(finalScale * settings.scaleX, finalScale * settings.scaleY);
-    }
   }
   
   private applyDiagonalOffsets(sprite: Sprite, settings: MutableDirectionalPositioningSettings, spriteScale: number, zoomLevel: number): void {

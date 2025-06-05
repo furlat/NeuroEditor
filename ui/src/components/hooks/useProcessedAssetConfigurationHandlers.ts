@@ -5,7 +5,9 @@ import {
   processedAssetModeActions,
   assetCreationActions,
   assetInstanceActions,
-  processedAssetsActions
+  processedAssetsActions,
+  assetPlacementActions,
+  anchorDistanceAnalysisActions
 } from '../../store/battlemap/processedAssets';
 import { IsometricDirection, isometricSpriteManager } from '../../game/managers/IsometricSpriteManager';
 import { getCanvasBoundingBox } from 'pixi.js';
@@ -285,6 +287,9 @@ export const useProcessedAssetConfigurationHandlers = () => {
         }
       });
     }
+    
+    // ANCHOR DISTANCE ANALYSIS: Trigger recalculation if debug panel is open
+    anchorDistanceAnalysisActions.triggerRecalculationIfNeeded();
   };
 
   // Handle margin changes
@@ -329,15 +334,61 @@ export const useProcessedAssetConfigurationHandlers = () => {
           
           console.log(`[Handlers] 🎯 Recalculated positioning:`, calculatedPositioning);
           
-          // Update both auto-computed reference AND manual value
-          updateCurrentSettings({
+          // CRITICAL FIX: Also recompute and store bounding box data!
+          let spriteBoundingBoxData = null;
+          try {
+            console.log(`[Handlers] 🔍 Recomputing bounding box for ${spriteName}...`);
+            
+            const texture = isometricSpriteManager.getSpriteTexture(spriteName, IsometricDirection.SOUTH);
+            if (texture && battlemapEngine?.app?.renderer) {
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              if (context) {
+                canvas.width = texture.width;
+                canvas.height = texture.height;
+                
+                const tempSprite = new PIXI.Sprite(texture);
+                const extractedCanvas = battlemapEngine.app.renderer.extract.canvas(tempSprite) as HTMLCanvasElement;
+                context.drawImage(extractedCanvas, 0, 0);
+                tempSprite.destroy();
+                
+                const boundingBox = getCanvasBoundingBox(canvas, 1);
+                
+                spriteBoundingBoxData = {
+                  originalWidth: texture.width,
+                  originalHeight: texture.height,
+                  boundingX: boundingBox.x,
+                  boundingY: boundingBox.y,
+                  boundingWidth: boundingBox.width,
+                  boundingHeight: boundingBox.height,
+                  anchorOffsetX: boundingBox.x / texture.width,
+                  anchorOffsetY: boundingBox.y / texture.height
+                };
+                
+                console.log(`[Handlers] 📦 Recomputed bounding box:`, spriteBoundingBoxData);
+              }
+            }
+          } catch (boundingBoxError) {
+            console.warn(`[Handlers] Failed to recompute bounding box:`, boundingBoxError);
+          }
+          
+          // Update both positioning values AND bounding box data
+          const updates: any = {
             autoComputedVerticalBias: calculatedPositioning.autoComputedVerticalBias,
             manualVerticalBias: calculatedPositioning.autoComputedVerticalBias, // Set manual to computed value
             verticalOffset: calculatedPositioning.verticalOffset,
-            horizontalOffset: calculatedPositioning.horizontalOffset
-          });
+            horizontalOffset: calculatedPositioning.horizontalOffset,
+            snapAboveYOffset: calculatedPositioning.snapAboveYOffset  // NEW: Store above positioning offset
+          };
           
-          console.log(`[Handlers] ✅ Updated positioning: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}`);
+          // Add bounding box data if computed successfully
+          if (spriteBoundingBoxData) {
+            updates.spriteBoundingBox = spriteBoundingBoxData;
+          }
+          
+          updateCurrentSettings(updates);
+          
+          console.log(`[Handlers] ✅ Updated positioning: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}, SnapAboveYOffset=${calculatedPositioning.snapAboveYOffset}${spriteBoundingBoxData ? ', BoundingBox=updated' : ''}`);
         } else {
           console.warn(`[Handlers] ⚠️ Could not get sprite frame size for: ${spriteName}`);
         }

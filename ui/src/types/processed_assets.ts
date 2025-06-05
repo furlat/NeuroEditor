@@ -194,19 +194,37 @@ export enum GridAnchorPoint {
 }
 
 /**
+ * Sprite attachment points for intuitive anchor selection
+ */
+export enum SpriteAnchorPoint {
+  CENTER = 'center',                    // Center of sprite (0.5, 0.5)
+  TOP_LEFT = 'top_left',               // Top-left corner (0, 0)
+  TOP_CENTER = 'top_center',           // Top edge center (0.5, 0)
+  TOP_RIGHT = 'top_right',             // Top-right corner (1, 0)
+  MIDDLE_LEFT = 'middle_left',         // Left edge center (0, 0.5)
+  MIDDLE_RIGHT = 'middle_right',       // Right edge center (1, 0.5)
+  BOTTOM_LEFT = 'bottom_left',         // Bottom-left corner (0, 1)
+  BOTTOM_CENTER = 'bottom_center',     // Bottom edge center (0.5, 1) - DEFAULT
+  BOTTOM_RIGHT = 'bottom_right',       // Bottom-right corner (1, 1)
+  CUSTOM = 'custom'                    // Custom position using spriteAnchorX/Y
+}
+
+/**
  * Sprite anchor configuration
  */
 export interface SpriteAnchorConfig {
-  readonly spriteAnchorX: number;          // Where on sprite to anchor (0-1, X axis)
-  readonly spriteAnchorY: number;          // Where on sprite to anchor (0-1, Y axis)
-  readonly useDefaultSpriteAnchor: boolean; // Whether to use asset-type defaults
-  readonly useBoundingBoxAnchor: boolean;   // Whether to apply anchor to bounding box instead of full sprite
+  readonly spriteAnchorPoint: SpriteAnchorPoint; // Predefined sprite anchor point
+  readonly spriteAnchorX: number;               // Custom sprite X position (0-1, only used with CUSTOM)
+  readonly spriteAnchorY: number;               // Custom sprite Y position (0-1, only used with CUSTOM)
+  readonly useDefaultSpriteAnchor: boolean;     // Whether to use asset-type defaults
+  readonly useBoundingBoxAnchor: boolean;       // Whether to apply anchor to bounding box instead of full sprite
 }
 
 /**
  * Mutable sprite anchor configuration
  */
 export interface MutableSpriteAnchorConfig {
+  spriteAnchorPoint: SpriteAnchorPoint;
   spriteAnchorX: number;
   spriteAnchorY: number;
   useDefaultSpriteAnchor: boolean;
@@ -245,6 +263,10 @@ export interface DirectionalPositioningSettings {
   readonly autoComputedVerticalBias: number;
   readonly useAutoComputed: boolean;
   readonly manualVerticalBias: number;
+  
+  // NEW: Above/below positioning system
+  readonly snapAboveYOffset: number;                    // Y offset for above positioning (non-snapped)
+  readonly useAbovePositioning: boolean;                // Whether to draw above (true) or below (false)
   
   // FIXED: Separate anchor systems
   readonly gridAnchor: GridAnchorConfig;     // Where to attach to the grid
@@ -301,6 +323,10 @@ export interface MutableDirectionalPositioningSettings {
   autoComputedVerticalBias: number;
   useAutoComputed: boolean;
   manualVerticalBias: number;
+  
+  // NEW: Above/below positioning system
+  snapAboveYOffset: number;                    // Y offset for above positioning (non-snapped)
+  useAbovePositioning: boolean;                // Whether to draw above (true) or below (false)
   
   // FIXED: Separate anchor systems
   gridAnchor: MutableGridAnchorConfig;     // Where to attach to the grid
@@ -589,11 +615,13 @@ export function calculateAutoComputedPositioning(
   spriteHeight: number = 100,
   useBoundingBoxAnchor: boolean = true,  // NEW: Default to cropped sprite anchoring
   spriteName?: string,                   // NEW: Optional sprite name for custom rules
-  assetType?: ProcessedAssetType         // NEW: Optional asset type for custom rules
+  assetType?: ProcessedAssetType,        // NEW: Optional asset type for custom rules
+  snapResults: boolean = true            // NEW: Whether to snap tile results to 44/204
 ): {
   autoComputedVerticalBias: number;
   verticalOffset: number;
   horizontalOffset: number;
+  snapAboveYOffset: number;              // NEW: Non-snapped Y offset for above positioning
 } {
   let normalizedWidth: number;
   let normalizedHeight: number;
@@ -607,9 +635,10 @@ export function calculateAutoComputedPositioning(
   
   // USER'S EXACT FORMULA: normalized height - (normalized width / 2)
   let autoComputedVerticalBias = normalizedHeight - (normalizedWidth / 2);
+  const originalComputedValue = autoComputedVerticalBias; // Store original for snapAboveYOffset
   
-  // NEW: For ALL TILES, snap to either 44 or 204
-  if (assetType === ProcessedAssetType.TILE) {
+  // NEW: For ALL TILES, snap to either 44 or 204 (only if snapResults is true)
+  if (assetType === ProcessedAssetType.TILE && snapResults) {
     const originalValue = autoComputedVerticalBias;
     const distanceTo44 = Math.abs(autoComputedVerticalBias - 44);
     const distanceTo204 = Math.abs(autoComputedVerticalBias - 204);
@@ -625,6 +654,7 @@ export function calculateAutoComputedPositioning(
   
   // For now, use ROUND_DOWN as default (most common)
   const roundedBias = Math.floor(autoComputedVerticalBias);
+  const originalRoundedBias = Math.floor(originalComputedValue); // Non-snapped version
   
   console.log(`[calculateAutoComputedPositioning] Formula result: ${autoComputedVerticalBias} → rounded: ${roundedBias}`);
   
@@ -635,6 +665,7 @@ export function calculateAutoComputedPositioning(
     autoComputedVerticalBias: roundedBias,
     verticalOffset: roundedBias,  // FIXED: Put calculated value into verticalOffset  
     horizontalOffset: defaultHorizontalOffset,  // NEW: offsetX = 1 for tiles, 0 for walls
+    snapAboveYOffset: originalRoundedBias,  // NEW: Non-snapped result for above positioning
   };
 }
 
@@ -658,6 +689,10 @@ export function createDefaultDirectionalSettings(
     autoComputedVerticalBias: 0, // PLACEHOLDER: Will be recalculated with actual sprite data
     useAutoComputed: assetType === ProcessedAssetType.TILE, // Only tiles use auto mode by default
     manualVerticalBias: 0,       // PLACEHOLDER: Will be set when we have real data
+    
+    // NEW: Above/below positioning system
+    snapAboveYOffset: 0,         // PLACEHOLDER: Will be calculated with real data
+    useAbovePositioning: false,  // Default to below positioning
     
     // FIXED: Separate anchor systems
     gridAnchor: getDefaultGridAnchor(assetType, wallDirection),
@@ -873,6 +908,7 @@ export function getDefaultSpriteAnchor(assetType: ProcessedAssetType, wallDirect
   if (assetType === ProcessedAssetType.WALL) {
     // Walls use bottom-center anchoring by default
     return {
+      spriteAnchorPoint: SpriteAnchorPoint.BOTTOM_CENTER,
       spriteAnchorX: 0.5,
       spriteAnchorY: 1.0,
       useDefaultSpriteAnchor: true,
@@ -881,11 +917,45 @@ export function getDefaultSpriteAnchor(assetType: ProcessedAssetType, wallDirect
   } else {
     // Tiles use bottom-center anchoring by default
     return {
+      spriteAnchorPoint: SpriteAnchorPoint.BOTTOM_CENTER,
       spriteAnchorX: 0.5,
       spriteAnchorY: 1.0,
       useDefaultSpriteAnchor: true,
       useBoundingBoxAnchor: true  // FIXED: Default to cropped sprite anchoring
     };
+  }
+}
+
+/**
+ * Calculate X/Y coordinates from SpriteAnchorPoint
+ * Returns the 0-1 coordinates for the given sprite anchor point
+ */
+export function getSpriteAnchorCoordinates(spriteAnchorPoint: SpriteAnchorPoint): { x: number; y: number } {
+  switch (spriteAnchorPoint) {
+    case SpriteAnchorPoint.CENTER:
+      return { x: 0.5, y: 0.5 };
+    case SpriteAnchorPoint.TOP_LEFT:
+      return { x: 0.0, y: 0.0 };
+    case SpriteAnchorPoint.TOP_CENTER:
+      return { x: 0.5, y: 0.0 };
+    case SpriteAnchorPoint.TOP_RIGHT:
+      return { x: 1.0, y: 0.0 };
+    case SpriteAnchorPoint.MIDDLE_LEFT:
+      return { x: 0.0, y: 0.5 };
+    case SpriteAnchorPoint.MIDDLE_RIGHT:
+      return { x: 1.0, y: 0.5 };
+    case SpriteAnchorPoint.BOTTOM_LEFT:
+      return { x: 0.0, y: 1.0 };
+    case SpriteAnchorPoint.BOTTOM_CENTER:
+      return { x: 0.5, y: 1.0 };
+    case SpriteAnchorPoint.BOTTOM_RIGHT:
+      return { x: 1.0, y: 1.0 };
+    case SpriteAnchorPoint.CUSTOM:
+      // For custom, caller should use the spriteAnchorX/Y values directly
+      return { x: 0.5, y: 1.0 }; // Default fallback
+    default:
+      console.warn(`[ProcessedAssets] Unknown sprite anchor point: ${spriteAnchorPoint}`);
+      return { x: 0.5, y: 1.0 }; // Default to bottom-center
   }
 }
 

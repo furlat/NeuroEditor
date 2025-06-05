@@ -22,6 +22,7 @@ import ProcessedAssetModeToggle from '../../ProcessedAssetModeToggle';
 import SettingsButton from '../../settings/SettingsButton';
 import ZLayerSelector from './ZLayerSelector';
 import ProcessedAssetSpriteSelector from '../../ProcessedAssetSpriteSelector';
+import AnchorDistanceAnalysis from './AnchorDistanceAnalysis';
 
 /**
  * Component that renders the tile editor control panel
@@ -47,12 +48,13 @@ export const CanvasControls: React.FC = () => {
     toggleEditorVisibility 
   } = useTileEditor();
   
-  // PERFORMANCE FIX: Only subscribe to hoveredCell, not the entire view object
-  // This avoids re-renders when offset changes during WASD movement
-  const hoveredCellSnap = useSnapshot(battlemapStore.view.hoveredCell);
-  
-  // Subscribe to processed asset mode for the toggle
+  // Performance-optimized snapshots
+  const viewSnap = useSnapshot(battlemapStore.view, { sync: true });
   const processedAssetModeSnap = useSnapshot(battlemapStore.processedAssets);
+  const anchorAnalysisSnap = useSnapshot(battlemapStore.processedAssets.anchorDistanceAnalysis);
+  
+  // Get hover position from view snapshot
+  const hoveredCellSnap = viewSnap.hoveredCell;
   
   // NEW: Auto-activate editing when in processed asset mode
   useEffect(() => {
@@ -242,25 +244,39 @@ export const CanvasControls: React.FC = () => {
         <SettingsButton />
       </Paper>
 
+      {/* Anchor Distance Analysis (Debug Tool) - Only for Processed Assets Mode */}
+      {processedAssetModeSnap.isProcessedAssetMode && (
+        <Box sx={{ 
+          position: 'absolute', 
+          top: 60,   // Moved up from 80 to avoid overlay with sprite selector
+          left: 16,
+          zIndex: 1001  // Higher than sprite selector to ensure it's on top
+        }}>
+          <AnchorDistanceAnalysis isLocked={isLocked} />
+        </Box>
+      )}
+
       {/* Z-Layer Selector */}
       <ZLayerSelector isLocked={isLocked} />
 
       {/* NEW LAYOUT: Sprite Selector on Left, Configuration on Right */}
       {isEditing && (
         <>
-          {/* Left Side - Sprite Selector */}
-          <Box sx={{ 
-            position: 'absolute', 
-            top: 80,
-            left: 16,
-            zIndex: 1000
-          }}>
-            {!processedAssetModeSnap.isProcessedAssetMode ? (
-              <IsometricSpriteSelector isLocked={isLocked} />
-            ) : (
-              <ProcessedAssetSpriteSelector isLocked={isLocked} />
-            )}
-          </Box>
+          {/* Left Side - Sprite Selector (Hidden when anchor debug panel is open) */}
+          {(!processedAssetModeSnap.isProcessedAssetMode || !anchorAnalysisSnap.isDebugPanelOpen) && (
+            <Box sx={{ 
+              position: 'absolute', 
+              top: 80,
+              left: 16,
+              zIndex: 1000
+            }}>
+              {!processedAssetModeSnap.isProcessedAssetMode ? (
+                <IsometricSpriteSelector isLocked={isLocked} />
+              ) : (
+                <ProcessedAssetSpriteSelector isLocked={isLocked} />
+              )}
+            </Box>
+          )}
           
           {/* Right Side - Configuration Panel */}
           <Box sx={{ 

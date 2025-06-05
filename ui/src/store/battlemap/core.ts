@@ -130,6 +130,27 @@ interface BattlemapStoreState {
       hasValidationErrors: boolean;        // Whether any assets have validation errors
       invalidAssetIds: ProcessedAssetId[]; // List of assets with validation errors
     };
+    
+    // NEW: Anchor Distance Analysis (Debug/Development tool)
+    anchorDistanceAnalysis: {
+      isDebugPanelOpen: boolean;           // Whether the debug panel is visible
+      selectedSourceAnchor: string;        // Which sprite anchor to analyze ('current' or specific anchor point)
+      showAllSources: boolean;             // Whether to show distances from all sprite anchors
+      lastCalculationAt: string | null;    // ISO timestamp of last calculation
+      
+      // Distance data structure: [spriteAnchor][diamondCorner] = { distance, deltaX, deltaY }
+      distanceMatrix: {
+        [spriteAnchor: string]: {          // 'top_left', 'top_center', etc.
+          [diamondCorner: string]: {        // 'north', 'east', 'south', 'west'
+            distance: number;               // Euclidean distance in pixels
+            deltaX: number;                 // X difference (positive = sprite anchor is right of diamond corner)
+            deltaY: number;                 // Y difference (positive = sprite anchor is below diamond corner)
+            gridX: number;                  // Grid position used for calculation
+            gridY: number;                  // Grid position used for calculation
+          };
+        };
+      };
+    };
   };
   loading: boolean;
   error: string | null;
@@ -247,6 +268,13 @@ export const battlemapStore = proxy<BattlemapStoreState>({
       lastValidationRun: null,
       hasValidationErrors: false,
       invalidAssetIds: [],
+    },
+    anchorDistanceAnalysis: {
+      isDebugPanelOpen: false,
+      selectedSourceAnchor: '',
+      showAllSources: false,
+      lastCalculationAt: null,
+      distanceMatrix: {},
     },
   },
   loading: false,

@@ -11,6 +11,10 @@
 
 import { battlemapStore, forceRerender } from './core';
 import { IsometricDirection, isometricSpriteManager } from '../../game/managers/IsometricSpriteManager';
+import { 
+  gridToIsometric, 
+  getIsometricDiamondCorners 
+} from '../../utils/isometricUtils';
 import {
   ProcessedAssetId,
   MutableProcessedAssetDefinition,
@@ -769,6 +773,7 @@ function performAutoCalculationForAsset(temporaryAsset: TemporaryAssetState): bo
       targetSettings.manualVerticalBias = calculatedPositioning.autoComputedVerticalBias; // Set manual to computed value
       targetSettings.verticalOffset = calculatedPositioning.verticalOffset;
       targetSettings.horizontalOffset = calculatedPositioning.horizontalOffset;
+      targetSettings.snapAboveYOffset = calculatedPositioning.snapAboveYOffset;  // NEW: Store above positioning offset
     };
     
     // Update shared settings
@@ -780,7 +785,7 @@ function performAutoCalculationForAsset(temporaryAsset: TemporaryAssetState): bo
     updateSettings(directionalBehavior.directionalSettings[IsometricDirection.SOUTH]);
     updateSettings(directionalBehavior.directionalSettings[IsometricDirection.WEST]);
     
-    console.log(`[Auto-Calc] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}`);
+    console.log(`[Auto-Calc] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}, SnapAboveYOffset=${calculatedPositioning.snapAboveYOffset}`);
     
     return true;
   } catch (error) {
@@ -788,6 +793,151 @@ function performAutoCalculationForAsset(temporaryAsset: TemporaryAssetState): bo
     return false;
   }
 }
+
+// ============================================================================
+// ANCHOR DISTANCE ANALYSIS ACTIONS (Debug/Development Tool)
+// ============================================================================
+
+export const anchorDistanceAnalysisActions = {
+  /**
+   * Toggle the debug panel visibility
+   */
+  toggleDebugPanel: () => {
+    const wasOpen = battlemapStore.processedAssets.anchorDistanceAnalysis.isDebugPanelOpen;
+    battlemapStore.processedAssets.anchorDistanceAnalysis.isDebugPanelOpen = !wasOpen;
+    
+    if (!wasOpen) {
+      // Panel opened - calculate distances
+      anchorDistanceAnalysisActions.calculateDistances();
+    }
+    
+    console.log(`[AnchorDistanceAnalysis] Debug panel ${!wasOpen ? 'opened' : 'closed'}`);
+  },
+
+  /**
+   * Set which source anchor to analyze
+   */
+  setSelectedSourceAnchor: (anchorPoint: string) => {
+    battlemapStore.processedAssets.anchorDistanceAnalysis.selectedSourceAnchor = anchorPoint;
+    console.log(`[AnchorDistanceAnalysis] Selected source anchor: ${anchorPoint}`);
+  },
+
+  /**
+   * Toggle showing all sprite anchor sources
+   */
+  toggleShowAllSources: () => {
+    const current = battlemapStore.processedAssets.anchorDistanceAnalysis.showAllSources;
+    battlemapStore.processedAssets.anchorDistanceAnalysis.showAllSources = !current;
+    console.log(`[AnchorDistanceAnalysis] Show all sources: ${!current}`);
+  },
+
+  /**
+   * Calculate distances between sprite anchors and diamond corners
+   */
+  calculateDistances: () => {
+    const snap = battlemapStore;
+    
+    // Get temporary asset for analysis
+    const temporaryAsset = snap.processedAssets.temporaryAsset;
+    if (!temporaryAsset) {
+      console.warn('[AnchorDistanceAnalysis] No temporary asset for analysis');
+      return;
+    }
+
+    // Use a fixed reference position for calculations (invariant to camera movement)
+    const referenceGridX = 0;
+    const referenceGridY = 0;
+    
+    // Get isometric offset for reference position 
+    const isometricOffset = {
+      offsetX: 0, // Don't include camera offset for reference calculations
+      offsetY: 0,
+      tileSize: snap.view.gridDiamondWidth * snap.view.zoomLevel
+    };
+    
+    // Get diamond corners for reference position
+    const diamondCorners = getIsometricDiamondCorners(referenceGridX, referenceGridY, isometricOffset);
+    
+    // Get grid center position
+    const { isoX, isoY } = gridToIsometric(referenceGridX, referenceGridY, isometricOffset.tileSize);
+    
+    // Define all sprite anchor points with their coordinates
+    const spriteAnchorPoints = {
+      'center': { x: 0.5, y: 0.5 },
+      'top_left': { x: 0.0, y: 0.0 },
+      'top_center': { x: 0.5, y: 0.0 },
+      'top_right': { x: 1.0, y: 0.0 },
+      'middle_left': { x: 0.0, y: 0.5 },
+      'middle_right': { x: 1.0, y: 0.5 },
+      'bottom_left': { x: 0.0, y: 1.0 },
+      'bottom_center': { x: 0.5, y: 1.0 },
+      'bottom_right': { x: 1.0, y: 1.0 }
+    };
+    
+    // Calculate distances
+    const distanceMatrix: any = {};
+    
+    Object.entries(spriteAnchorPoints).forEach(([spriteAnchorName, spriteAnchorCoords]) => {
+      distanceMatrix[spriteAnchorName] = {};
+      
+      // Calculate sprite anchor position relative to grid center
+      // For simplicity, assume a 100x100 sprite (we're looking at relative positions)
+      const spriteWidth = 100;
+      const spriteHeight = 100;
+      
+      const spriteAnchorX = isoX + (spriteAnchorCoords.x - 0.5) * spriteWidth;
+      const spriteAnchorY = isoY + (spriteAnchorCoords.y - 0.5) * spriteHeight;
+      
+      // Calculate distances to each diamond corner
+      Object.entries(diamondCorners).forEach(([cornerName, cornerPos]: [string, any]) => {
+        if (cornerName === 'center') return; // Skip center point
+        
+        const deltaX = spriteAnchorX - cornerPos.x;
+        const deltaY = spriteAnchorY - cornerPos.y;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        
+        distanceMatrix[spriteAnchorName][cornerName] = {
+          distance: Math.round(distance * 100) / 100, // Round to 2 decimal places
+          deltaX: Math.round(deltaX * 100) / 100,
+          deltaY: Math.round(deltaY * 100) / 100,
+          gridX: referenceGridX,
+          gridY: referenceGridY
+        };
+      });
+    });
+    
+    // Update store
+    snap.processedAssets.anchorDistanceAnalysis.distanceMatrix = distanceMatrix;
+    snap.processedAssets.anchorDistanceAnalysis.lastCalculationAt = new Date().toISOString();
+    
+    console.log('[AnchorDistanceAnalysis] Calculated distances for all anchor points');
+  },
+
+  /**
+   * Get distance data for a specific sprite anchor
+   */
+  getDistanceDataForAnchor: (spriteAnchor: string) => {
+    const distanceMatrix = battlemapStore.processedAssets.anchorDistanceAnalysis.distanceMatrix;
+    return distanceMatrix[spriteAnchor] || {};
+  },
+
+  /**
+   * Get all distance data
+   */
+  getAllDistanceData: () => {
+    return battlemapStore.processedAssets.anchorDistanceAnalysis.distanceMatrix;
+  },
+
+  /**
+   * Auto-recalculate distances when positioning settings change
+   */
+  triggerRecalculationIfNeeded: () => {
+    // Only recalculate if the debug panel is open
+    if (battlemapStore.processedAssets.anchorDistanceAnalysis.isDebugPanelOpen) {
+      anchorDistanceAnalysisActions.calculateDistances();
+    }
+  }
+};
 
 // ============================================================================
 // COMBINED EXPORT

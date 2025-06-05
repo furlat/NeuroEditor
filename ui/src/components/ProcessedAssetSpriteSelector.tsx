@@ -31,6 +31,9 @@ import {
   calculateAutoComputedPositioning
 } from '../types/processed_assets';
 import { processedAssetsActions } from '../store/battlemap/processedAssets';
+import { battlemapEngine } from '../game/BattlemapEngine';
+import { getCanvasBoundingBox } from 'pixi.js';
+import * as PIXI from 'pixi.js';
 
 interface ProcessedAssetSpriteSelectorProps {
   isLocked: boolean;
@@ -429,7 +432,8 @@ const ProcessedAssetSpriteSelector: React.FC<ProcessedAssetSpriteSelectorProps> 
               autoComputedVerticalBias: calculatedPositioning.autoComputedVerticalBias,
               manualVerticalBias: calculatedPositioning.autoComputedVerticalBias, // Set manual to computed value
               verticalOffset: calculatedPositioning.verticalOffset,
-              horizontalOffset: calculatedPositioning.horizontalOffset
+              horizontalOffset: calculatedPositioning.horizontalOffset,
+              snapAboveYOffset: calculatedPositioning.snapAboveYOffset  // NEW: Store above positioning offset
             });
             
             temporaryAsset.directionalBehavior.sharedSettings = updateSettings(temporaryAsset.directionalBehavior.sharedSettings);
@@ -438,11 +442,66 @@ const ProcessedAssetSpriteSelector: React.FC<ProcessedAssetSpriteSelectorProps> 
             temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH]);
             temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST] = updateSettings(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST]);
             
-            console.log(`[ProcessedAssetSpriteSelector] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}`);
+            console.log(`[ProcessedAssetSpriteSelector] ✅ Auto-calculated: VerticalBias=${calculatedPositioning.autoComputedVerticalBias}, VerticalOffset=${calculatedPositioning.verticalOffset}, HorizontalOffset=${calculatedPositioning.horizontalOffset}, SnapAboveYOffset=${calculatedPositioning.snapAboveYOffset}`);
           }
         } catch (error) {
           console.warn('[ProcessedAssetSpriteSelector] Failed to recalculate auto values:', error);
         }
+      }
+      
+      // CRITICAL FIX: Compute and store bounding box data for ALL asset types!
+      try {
+        console.log(`[ProcessedAssetSpriteSelector] 🔍 Computing bounding box for ${spriteName}...`);
+        
+        // Get the texture and compute its bounding box
+        const texture = isometricSpriteManager.getSpriteTexture(spriteName, IsometricDirection.SOUTH);
+        if (texture && battlemapEngine?.app?.renderer) {
+          // Create temporary canvas with correct dimensions
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (context) {
+            canvas.width = texture.width;
+            canvas.height = texture.height;
+            
+            // Extract texture data
+            const tempSprite = new PIXI.Sprite(texture);
+            const extractedCanvas = battlemapEngine.app.renderer.extract.canvas(tempSprite) as HTMLCanvasElement;
+            context.drawImage(extractedCanvas, 0, 0);
+            tempSprite.destroy();
+            
+            // Compute bounding box
+            const boundingBox = getCanvasBoundingBox(canvas, 1);
+            
+            const spriteBoundingBoxData = {
+              originalWidth: texture.width,
+              originalHeight: texture.height,
+              boundingX: boundingBox.x,
+              boundingY: boundingBox.y,
+              boundingWidth: boundingBox.width,
+              boundingHeight: boundingBox.height,
+              anchorOffsetX: boundingBox.x / texture.width,
+              anchorOffsetY: boundingBox.y / texture.height
+            };
+            
+            console.log(`[ProcessedAssetSpriteSelector] 📦 Computed bounding box:`, spriteBoundingBoxData);
+            
+            // CRITICAL: Store bounding box data in ALL directional settings!
+            const updateWithBoundingBox = (settings: any) => ({
+              ...settings,
+              spriteBoundingBox: spriteBoundingBoxData
+            });
+            
+            temporaryAsset.directionalBehavior.sharedSettings = updateWithBoundingBox(temporaryAsset.directionalBehavior.sharedSettings);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.NORTH] = updateWithBoundingBox(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.NORTH]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.EAST] = updateWithBoundingBox(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.EAST]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH] = updateWithBoundingBox(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.SOUTH]);
+            temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST] = updateWithBoundingBox(temporaryAsset.directionalBehavior.directionalSettings[IsometricDirection.WEST]);
+            
+            console.log(`[ProcessedAssetSpriteSelector] ✅ Stored bounding box data in all directional settings`);
+          }
+        }
+      } catch (error) {
+        console.warn('[ProcessedAssetSpriteSelector] Failed to compute bounding box:', error);
       }
       
       // Set the temporary asset directly (this preserves the correct wall defaults like A=8, B=3)

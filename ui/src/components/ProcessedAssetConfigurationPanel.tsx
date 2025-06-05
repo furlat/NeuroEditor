@@ -524,55 +524,63 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                         🖼️ Sprite Anchor (WHERE on sprite canvas):
                       </Typography>
                       
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, mb: 1 }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '30px', color: '#9C27B0' }}>X:</Typography>
-                          <TextField
-                            type="number"
-                            inputProps={{ step: 0.1, min: 0, max: 1 }}
-                            value={currentSettings.spriteAnchor?.spriteAnchorX || 0.5}
-                            onChange={(e) => updateCurrentSettings({ 
-                              spriteAnchor: {
-                                ...currentSettings.spriteAnchor,
-                                spriteAnchorX: parseFloat(e.target.value) || 0.5
-                              }
-                            })}
-                            disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#9C27B0' },
-                                '&:hover fieldset': { borderColor: '#7B1FA2' }
-                              }
+                          <Typography variant="caption" sx={{ minWidth: '40px', color: '#9C27B0' }}>Point:</Typography>
+                          <select
+                            value={currentSettings?.spriteAnchor?.spriteAnchorPoint || 'bottom_center'}
+                            onChange={(e) => {
+                              if (!currentSettings) return;
+                              
+                              const newPoint = e.target.value as any;
+                              // When changing anchor point, auto-update the X/Y coordinates
+                              const coords = newPoint === 'custom' 
+                                ? { x: currentSettings.spriteAnchor?.spriteAnchorX || 0.5, y: currentSettings.spriteAnchor?.spriteAnchorY || 1.0 }
+                                : (() => {
+                                    // Calculate coordinates from the anchor point
+                                    switch (newPoint) {
+                                      case 'center': return { x: 0.5, y: 0.5 };
+                                      case 'top_left': return { x: 0.0, y: 0.0 };
+                                      case 'top_center': return { x: 0.5, y: 0.0 };
+                                      case 'top_right': return { x: 1.0, y: 0.0 };
+                                      case 'middle_left': return { x: 0.0, y: 0.5 };
+                                      case 'middle_right': return { x: 1.0, y: 0.5 };
+                                      case 'bottom_left': return { x: 0.0, y: 1.0 };
+                                      case 'bottom_center': return { x: 0.5, y: 1.0 };
+                                      case 'bottom_right': return { x: 1.0, y: 1.0 };
+                                      default: return { x: 0.5, y: 1.0 };
+                                    }
+                                  })();
+                              
+                              updateCurrentSettings({ 
+                                spriteAnchor: {
+                                  ...currentSettings.spriteAnchor,
+                                  spriteAnchorPoint: newPoint,
+                                  spriteAnchorX: coords.x,
+                                  spriteAnchorY: coords.y
+                                }
+                              });
                             }}
-                          />
-                        </Box>
-                        
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" sx={{ minWidth: '30px', color: '#9C27B0' }}>Y:</Typography>
-                          <TextField
-                            type="number"
-                            inputProps={{ step: 0.1, min: 0, max: 1 }}
-                            value={currentSettings.spriteAnchor?.spriteAnchorY || 1.0}
-                            onChange={(e) => updateCurrentSettings({ 
-                              spriteAnchor: {
-                                ...currentSettings.spriteAnchor,
-                                spriteAnchorY: parseFloat(e.target.value) || 1.0
-                              }
-                            })}
                             disabled={isLocked}
-                            size="small"
-                            sx={{ 
-                              width: '60px',
-                              '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
-                              '& .MuiOutlinedInput-root': { 
-                                '& fieldset': { borderColor: '#9C27B0' },
-                                '&:hover fieldset': { borderColor: '#7B1FA2' }
-                              }
+                            style={{ 
+                              backgroundColor: '#333', 
+                              color: 'white', 
+                              border: '1px solid #9C27B0',
+                              fontSize: '0.7rem',
+                              width: '120px'
                             }}
-                          />
+                          >
+                            <option value="center">🎯 Center</option>
+                            <option value="top_left">🔸 Top-Left</option>
+                            <option value="top_center">⬆️ Top-Center</option>
+                            <option value="top_right">🔹 Top-Right</option>
+                            <option value="middle_left">⬅️ Mid-Left</option>
+                            <option value="middle_right">➡️ Mid-Right</option>
+                            <option value="bottom_left">🔸 Bot-Left</option>
+                            <option value="bottom_center">⬇️ Bot-Center</option>
+                            <option value="bottom_right">🔹 Bot-Right</option>
+                            <option value="custom">🎛️ Custom</option>
+                          </select>
                         </Box>
                         
                         <Button
@@ -580,8 +588,8 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                           onClick={() => {
                             // Restore default sprite anchor for current asset type 
                             const defaultSpriteAnchor = temporaryAsset?.assetType === 'wall'
-                              ? { spriteAnchorX: 0.5, spriteAnchorY: 1.0, useDefaultSpriteAnchor: true, useBoundingBoxAnchor: false } // Will be direction-specific
-                              : { spriteAnchorX: 0.5, spriteAnchorY: 1.0, useDefaultSpriteAnchor: true, useBoundingBoxAnchor: false };
+                              ? { spriteAnchorPoint: 'bottom_center', spriteAnchorX: 0.5, spriteAnchorY: 1.0, useDefaultSpriteAnchor: true, useBoundingBoxAnchor: false }
+                              : { spriteAnchorPoint: 'bottom_center', spriteAnchorX: 0.5, spriteAnchorY: 1.0, useDefaultSpriteAnchor: true, useBoundingBoxAnchor: false };
                             
                             updateCurrentSettings({ spriteAnchor: defaultSpriteAnchor });
                           }}
@@ -598,39 +606,115 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                         </Button>
                       </Box>
 
-                      {/* Bounding Box Anchor Toggle */}
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={currentSettings.spriteAnchor?.useBoundingBoxAnchor || false}
-                            onChange={(e) => updateCurrentSettings({ 
-                              spriteAnchor: {
-                                ...currentSettings.spriteAnchor,
-                                useBoundingBoxAnchor: e.target.checked
-                              }
-                            })}
-                            disabled={isLocked}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': { color: '#9C27B0' },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#9C27B0' }
-                            }}
-                          />
-                        }
-                        label={
-                          <Typography variant="caption" sx={{ color: (currentSettings.spriteAnchor?.useBoundingBoxAnchor || false) ? '#9C27B0' : 'white', fontSize: '0.65rem' }}>
-                            📦 Apply to Bounding Box (trimmed rectangle)
-                          </Typography>
-                        }
-                      />
-                      
-                      <Typography variant="caption" sx={{ 
-                        color: 'rgba(156,39,176,0.7)', 
-                        fontSize: '0.6rem',
-                        display: 'block'
-                      }}>
-                        When enabled, anchor applies to trimmed sprite area instead of full canvas
-                      </Typography>
+                      {/* Custom sprite coordinates (only show if custom) */}
+                      {currentSettings?.spriteAnchor?.spriteAnchorPoint === 'custom' && (
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '30px', color: '#9C27B0' }}>X:</Typography>
+                            <TextField
+                              type="number"
+                              inputProps={{ step: 0.1, min: 0, max: 1 }}
+                              value={currentSettings?.spriteAnchor?.spriteAnchorX || 0.5}
+                              onChange={(e) => updateCurrentSettings({ 
+                                spriteAnchor: {
+                                  ...currentSettings?.spriteAnchor,
+                                  spriteAnchorX: parseFloat(e.target.value) || 0.5
+                                }
+                              })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#9C27B0' },
+                                  '&:hover fieldset': { borderColor: '#7B1FA2' }
+                                }
+                              }}
+                            />
+                          </Box>
+                          
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ minWidth: '30px', color: '#9C27B0' }}>Y:</Typography>
+                            <TextField
+                              type="number"
+                              inputProps={{ step: 0.1, min: 0, max: 1 }}
+                              value={currentSettings?.spriteAnchor?.spriteAnchorY || 1.0}
+                              onChange={(e) => updateCurrentSettings({ 
+                                spriteAnchor: {
+                                  ...currentSettings?.spriteAnchor,
+                                  spriteAnchorY: parseFloat(e.target.value) || 1.0
+                                }
+                              })}
+                              disabled={isLocked}
+                              size="small"
+                              sx={{ 
+                                width: '60px',
+                                '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                                '& .MuiOutlinedInput-root': { 
+                                  '& fieldset': { borderColor: '#9C27B0' },
+                                  '&:hover fieldset': { borderColor: '#7B1FA2' }
+                                }
+                              }}
+                            />
+                          </Box>
+                        </Box>
+                      )}
                     </Box>
+
+                    {/* Bounding Box Anchor Toggle */}
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={currentSettings.spriteAnchor?.useBoundingBoxAnchor || false}
+                          onChange={(e) => updateCurrentSettings({ 
+                            spriteAnchor: {
+                              ...currentSettings.spriteAnchor,
+                              useBoundingBoxAnchor: e.target.checked
+                            }
+                          })}
+                          disabled={isLocked}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': { color: '#9C27B0' },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#9C27B0' }
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography variant="caption" sx={{ color: (currentSettings.spriteAnchor?.useBoundingBoxAnchor || false) ? '#9C27B0' : 'white', fontSize: '0.65rem' }}>
+                          📦 Apply to Bounding Box (trimmed rectangle)
+                        </Typography>
+                      }
+                    />
+                    
+                    {/* Above/Below Positioning Toggle - Small inline version */}
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={currentSettings.useAbovePositioning ?? false}
+                          onChange={(e) => updateCurrentSettings({ useAbovePositioning: e.target.checked })}
+                          disabled={isLocked}
+                          size="small"
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': { color: '#673AB7' },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#673AB7' }
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography variant="caption" sx={{ color: (currentSettings.useAbovePositioning ?? false) ? '#673AB7' : 'white', fontSize: '0.65rem' }}>
+                          {(currentSettings.useAbovePositioning ?? false) ? '🔺 Above Grid' : '🔻 Below Grid'}
+                        </Typography>
+                      }
+                    />
+                    
+                    <Typography variant="caption" sx={{ 
+                      color: 'rgba(156,39,176,0.7)', 
+                      fontSize: '0.6rem',
+                      display: 'block'
+                    }}>
+                      When enabled, anchor applies to trimmed sprite area instead of full canvas
+                    </Typography>
                   </Box>
 
                   {/* Advanced Positioning Controls */}
@@ -730,7 +814,7 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                     />
 
                     {/* Offset Controls */}
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Typography variant="caption" sx={{ minWidth: '40px', color: '#FF9800' }}>OffsetX:</Typography>
                         <TextField
@@ -768,6 +852,31 @@ const ProcessedAssetConfigurationPanel: React.FC<ProcessedAssetConfigurationPane
                           }}
                         />
                       </Box>
+                    </Box>
+                    
+                    {/* Above Snap Offset Control */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                      <Typography variant="caption" sx={{ minWidth: '80px', color: '#673AB7', fontSize: '0.65rem' }}>
+                        🔺 Above Offset:
+                      </Typography>
+                      <TextField
+                        type="number"
+                        value={currentSettings.snapAboveYOffset || 0}
+                        onChange={(e) => updateCurrentSettings({ snapAboveYOffset: parseInt(e.target.value) || 0 })}
+                        disabled={isLocked}
+                        size="small"
+                        sx={{ 
+                          width: '60px',
+                          '& .MuiInputBase-input': { color: 'white', fontSize: '0.7rem', padding: '2px 4px' },
+                          '& .MuiOutlinedInput-root': { 
+                            '& fieldset': { borderColor: '#673AB7' },
+                            '&:hover fieldset': { borderColor: '#512DA8' }
+                          }
+                        }}
+                      />
+                      <Typography variant="caption" sx={{ color: 'rgba(103,58,183,0.7)', fontSize: '0.6rem' }}>
+                        (non-snapped Y offset for above positioning)
+                      </Typography>
                     </Box>
                   </Box>
 
