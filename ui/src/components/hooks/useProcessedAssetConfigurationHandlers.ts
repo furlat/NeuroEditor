@@ -218,30 +218,29 @@ export const useProcessedAssetConfigurationHandlers = () => {
       // Switching TO shared mode - copy current direction settings to shared
       const currentDirectionSettings = temporaryAsset.directionalBehavior.directionalSettings[selectedDirection];
       
-      const updatedDirectionalSettings = {
-        ...temporaryAsset.directionalBehavior.directionalSettings
-      };
-      
-      // When switching TO shared mode, populate shared settings with current direction
-      updatedDirectionalSettings[IsometricDirection.NORTH] = { ...currentDirectionSettings };
-      updatedDirectionalSettings[IsometricDirection.EAST] = { ...currentDirectionSettings };
-      updatedDirectionalSettings[IsometricDirection.SOUTH] = { ...currentDirectionSettings };
-      updatedDirectionalSettings[IsometricDirection.WEST] = { ...currentDirectionSettings };
-      
+      // FIXED: Don't overwrite directional settings when switching to shared mode
+      // Just update the shared settings and toggle the flag
       assetCreationActions.updateTemporaryAsset({
         directionalBehavior: {
           ...temporaryAsset.directionalBehavior,
           useSharedSettings: true,
-          sharedSettings: { ...currentDirectionSettings },
-          directionalSettings: updatedDirectionalSettings
+          sharedSettings: { ...currentDirectionSettings }
         }
       });
     } else {
-      // Switching FROM shared mode - directional settings already exist, just change the flag
+      // FIXED: Switching FROM shared mode - propagate shared settings to ALL directions
+      const currentSharedSettings = temporaryAsset.directionalBehavior.sharedSettings;
+      
       assetCreationActions.updateTemporaryAsset({
         directionalBehavior: {
           ...temporaryAsset.directionalBehavior,
-          useSharedSettings: false
+          useSharedSettings: false,
+          directionalSettings: {
+            [IsometricDirection.NORTH]: { ...currentSharedSettings },
+            [IsometricDirection.EAST]: { ...currentSharedSettings },
+            [IsometricDirection.SOUTH]: { ...currentSharedSettings },
+            [IsometricDirection.WEST]: { ...currentSharedSettings }
+          }
         }
       });
     }
