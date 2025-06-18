@@ -1,15 +1,14 @@
 // /store/battlemap/index.ts
+// CLEANED UP: All legacy positioning logic removed
 
-// Import from all store modules
+// Import from remaining store modules
 import { battlemapStore, coreActions } from './core';
 import { zLayerActions, LayerVisibilityMode, Z_LAYER_CONFIG, DEFAULT_Z_LAYER_SETTINGS } from './zlayer';
-import { isometricEditorActions, VerticalBiasComputationMode, DirectionalSettings } from './isometricEditor';
-import { wallActions } from './walls';
 
 // Type imports
 import type { DeepReadonly } from '../../types/common';
 
-// Since we can't import BattlemapStoreState due to circular dependencies, 
+// Since we can't import BattlemapStoreState due to circular dependencies,
 // we'll define ReadonlyBattlemapStore using typeof
 export type ReadonlyBattlemapStore = DeepReadonly<typeof battlemapStore>;
 
@@ -17,40 +16,23 @@ export type ReadonlyBattlemapStore = DeepReadonly<typeof battlemapStore>;
 export { battlemapStore };
 
 // Re-export types and values for components to use
-export { 
-  VerticalBiasComputationMode, 
+export {
   LayerVisibilityMode,
   Z_LAYER_CONFIG,
-  DEFAULT_Z_LAYER_SETTINGS 
+  DEFAULT_Z_LAYER_SETTINGS
 };
-export type { DirectionalSettings };
 
 // Re-export commonly used types from original type files (safe imports)
-export type { 
-  TileSummary, 
-  WallSummary, 
-  GridSnapshot 
+export type {
+  TileSummary,
+  GridSnapshot
 } from '../../types/battlemap_types';
 
-// Combined actions object for backward compatibility
+// Combined actions object - positioning logic removed
 export const battlemapActions = {
-  // Core actions
+  // Core actions (grid, view, controls)
   ...coreActions,
   
   // Z-layer actions
   ...zLayerActions,
-  
-  // Isometric editor actions
-  ...isometricEditorActions,
-  
-  // Wall actions
-  ...wallActions,
-  
-  // Special handling for vertical bias computation mode
-  // (needs to trigger recalculation in isometric editor)
-  setVerticalBiasComputationMode: (mode: Parameters<typeof coreActions.setVerticalBiasComputationMode>[0]) => {
-    coreActions.setVerticalBiasComputationMode(mode);
-    // Trigger recalculation of all auto-computed sprite settings
-    isometricEditorActions.recalculateAutoComputedSettings();
-  },
 };

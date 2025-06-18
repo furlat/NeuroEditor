@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Button, Alert } from '@mui/material';
-import { useGrid, useMapControls, useTileEditor } from '../../../hooks/battlemap';
+import { useGrid, useMapControls } from '../../../hooks/battlemap';
 import { battlemapStore, battlemapActions } from '../../../store';
 import { useSnapshot } from 'valtio';
 import { CanvasControls } from './CanvasControls';
@@ -40,10 +40,6 @@ const BattleMapCanvas: React.FC = () => {
     isLocked
   } = useMapControls();
 
-  const {
-    isEditing,
-    isEditorVisible
-  } = useTileEditor();
   
   const snap = useSnapshot(battlemapStore);
 

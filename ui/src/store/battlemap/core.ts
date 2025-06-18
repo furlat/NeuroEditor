@@ -2,10 +2,6 @@
 import { proxy } from 'valtio';
 import { TileSummary } from '../../types/battlemap_types';
 import { TileType } from '../../hooks/battlemap';
-import { IsometricDirection, SpriteCategory } from '../../game/managers/IsometricSpriteManager';
-
-// Import values from local definitions in other store modules to avoid circular dependencies
-import { VerticalBiasComputationMode } from './isometricEditor';
 import { LayerVisibilityMode, DEFAULT_Z_LAYER_SETTINGS } from './zlayer';
 
 // Local type definition for BattlemapStoreState to avoid circular dependency
@@ -14,7 +10,6 @@ interface BattlemapStoreState {
     width: number;
     height: number;
     tiles: Record<string, TileSummary>;
-    walls: Record<string, any>; // Using any to avoid importing WallSummary
     maxZLevel: number;
   };
   view: {
@@ -24,20 +19,13 @@ interface BattlemapStoreState {
     showZLevel: number;
     zoomLevel: number;
     gridDiamondWidth: number;
-    spriteScale: number;
     isRatioLocked: boolean;
     baseGridDiamondWidth: number;
-    baseSpriteScale: number;
     baseZLayerHeights: Array<{ z: number; verticalOffset: number; name: string; color: number }>;
-    invisibleMarginUp: number;
-    invisibleMarginDown: number;
-    invisibleMarginLeft: number;
-    invisibleMarginRight: number;
     activeZLayer: number;
     layerVisibilityMode: LayerVisibilityMode;
     gridLayerVisibility: { [zLayer: number]: boolean };
     zLayerHeights: Array<{ z: number; verticalOffset: number; name: string; color: number }>;
-    verticalBiasComputationMode: VerticalBiasComputationMode;
   };
   controls: {
     isLocked: boolean;
@@ -47,7 +35,6 @@ interface BattlemapStoreState {
     isEditing: boolean;
     isEditorVisible: boolean;
     selectedTileType: TileType;
-    isometricEditor: any; // Using any to avoid complex type definition
   };
   loading: boolean;
   error: string | null;
@@ -59,7 +46,6 @@ export const battlemapStore = proxy<BattlemapStoreState>({
     width: 30,
     height: 20,
     tiles: {},
-    walls: {},
     maxZLevel: 0,
   },
   view: {
@@ -68,16 +54,10 @@ export const battlemapStore = proxy<BattlemapStoreState>({
     wasd_moving: false,
     showZLevel: -1, // Show all levels by default
     zoomLevel: 1.0,
-    gridDiamondWidth: 400, // Updated to user's preferred value (was 402)
-    spriteScale: 1.0, // Keep at original size
-    isRatioLocked: true, // Default to true as requested
-    baseGridDiamondWidth: 400, // Original grid width for ratio calculations
-    baseSpriteScale: 1.0, // Original sprite scale for ratio calculations
-    baseZLayerHeights: DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer })), // Original Z-layer heights for ratio calculations
-    invisibleMarginUp: 8, // User's working top margin
-    invisibleMarginDown: 8, // User's working bottom margin
-    invisibleMarginLeft: 8, // User's working left margin
-    invisibleMarginRight: 8, // User's working right margin
+    gridDiamondWidth: 401,
+    isRatioLocked: true,
+    baseGridDiamondWidth: 400,
+    baseZLayerHeights: DEFAULT_Z_LAYER_SETTINGS.map(layer => ({ ...layer })),
     activeZLayer: 0,
     layerVisibilityMode: LayerVisibilityMode.NORMAL,
     gridLayerVisibility: {
@@ -86,7 +66,6 @@ export const battlemapStore = proxy<BattlemapStoreState>({
       2: false,
     },
     zLayerHeights: DEFAULT_Z_LAYER_SETTINGS,
-    verticalBiasComputationMode: VerticalBiasComputationMode.SNAP_TO_NEAREST,
   },
   controls: {
     isLocked: false,
@@ -96,22 +75,6 @@ export const battlemapStore = proxy<BattlemapStoreState>({
     isEditing: false,
     isEditorVisible: false,
     selectedTileType: 'floor',
-    isometricEditor: {
-      selectedSpriteName: null,
-      selectedSpriteDirection: IsometricDirection.SOUTH,
-      selectedZLevel: 0,
-      selectedSpriteCategory: SpriteCategory.BLOCKS,
-      brushSize: 1,
-      isDirectionalMode: false,
-      spriteTypeSettings: {},
-      wallMode: false,
-      selectedWallType: 'brick',
-      wallPlacementDirection: IsometricDirection.SOUTH,
-      wallSpriteDirection: IsometricDirection.SOUTH,
-      wallPositioningSettings: {},
-      lastSelectedBlockSprite: null,
-      lastSelectedWallSprite: null,
-    },
   },
   loading: false,
   error: null,
@@ -125,8 +88,6 @@ export const forceRerender = () => {
   // Also trigger manual renders if available
   setTimeout(() => {
     if ((window as any).__forceGridRender) (window as any).__forceGridRender();
-    if ((window as any).__forceTileRender) (window as any).__forceTileRender();
-    if ((window as any).__forceWallRender) (window as any).__forceWallRender();
   }, 0);
 };
 
@@ -173,69 +134,29 @@ export const coreActions = {
   setGridDiamondWidth: (width: number) => {
     battlemapStore.view.gridDiamondWidth = width;
     
-    // If ratio lock is enabled, adjust sprite scale and Z-layer heights proportionally from base values
+    // If ratio lock is enabled, adjust Z-layer heights proportionally from base values
     if (battlemapStore.view.isRatioLocked) {
       const ratio = width / battlemapStore.view.baseGridDiamondWidth;
       
-      // Scale sprite scale from base value
-      battlemapStore.view.spriteScale = battlemapStore.view.baseSpriteScale * ratio;
-      
       // Scale Z-layer heights from base values
       battlemapStore.view.zLayerHeights = battlemapStore.view.baseZLayerHeights.map((layer: { z: number; verticalOffset: number; name: string; color: number }) => ({
         ...layer,
         verticalOffset: Math.round(layer.verticalOffset * ratio)
       }));
       
-      console.log(`[battlemapStore] Ratio lock: Grid width changed to ${width}, ratio ${ratio.toFixed(3)}, adjusted sprite scale to ${battlemapStore.view.spriteScale.toFixed(2)}, scaled Z-layer heights from base values`);
-    }
-  },
-  
-  setSpriteScale: (scale: number) => {
-    const clampedScale = Math.max(0.1, Math.min(5.0, scale));
-    battlemapStore.view.spriteScale = clampedScale;
-    
-    // If ratio lock is enabled, adjust grid diamond width and Z-layer heights proportionally from base values
-    if (battlemapStore.view.isRatioLocked) {
-      const ratio = clampedScale / battlemapStore.view.baseSpriteScale;
-      
-      // Scale grid width from base value
-      battlemapStore.view.gridDiamondWidth = Math.round(battlemapStore.view.baseGridDiamondWidth * ratio);
-      
-      // Scale Z-layer heights from base values
-      battlemapStore.view.zLayerHeights = battlemapStore.view.baseZLayerHeights.map((layer: { z: number; verticalOffset: number; name: string; color: number }) => ({
-        ...layer,
-        verticalOffset: Math.round(layer.verticalOffset * ratio)
-      }));
-      
-      console.log(`[battlemapStore] Ratio lock: Sprite scale changed to ${clampedScale}, ratio ${ratio.toFixed(3)}, adjusted grid width to ${battlemapStore.view.gridDiamondWidth}, scaled Z-layer heights from base values`);
+      console.log(`[battlemapStore] Ratio lock: Grid width changed to ${width}, ratio ${ratio.toFixed(3)}, scaled Z-layer heights from base values`);
     }
   },
   
   // Ratio lock management
   setRatioLocked: (locked: boolean) => {
     battlemapStore.view.isRatioLocked = locked;
-    console.log(`[battlemapStore] Ratio lock ${locked ? 'enabled' : 'disabled'} - Grid: ${battlemapStore.view.gridDiamondWidth}px, Sprite: ${battlemapStore.view.spriteScale}x`);
+    console.log(`[battlemapStore] Ratio lock ${locked ? 'enabled' : 'disabled'} - Grid: ${battlemapStore.view.gridDiamondWidth}px`);
   },
   
   toggleRatioLock: () => {
     const newLocked = !battlemapStore.view.isRatioLocked;
     coreActions.setRatioLocked(newLocked);
-  },
-  
-  setInvisibleMarginUp: (margin: number) => {
-    battlemapStore.view.invisibleMarginUp = margin;
-  },
-  
-  setInvisibleMarginDown: (margin: number) => {
-    battlemapStore.view.invisibleMarginDown = margin;
-  },
-  
-  setInvisibleMarginLeft: (margin: number) => {
-    battlemapStore.view.invisibleMarginLeft = margin;
-  },
-  
-  setInvisibleMarginRight: (margin: number) => {
-    battlemapStore.view.invisibleMarginRight = margin;
   },
   
   // Controls actions
@@ -287,14 +208,13 @@ export const coreActions = {
     console.log(`[battlemapStore] Initialized local grid: ${width}x${height}`);
   },
 
-  // Generate sample tiles for testing - updated for isometric sprites
+  // Generate sample tiles for testing - basic grid data only
   generateSampleTiles: () => {
     const sampleTiles: Record<string, TileSummary> = {};
     
-    // Create a small sample area with floor tiles only
+    // Create a small sample area with basic floor tiles
     for (let x = 5; x < 15; x++) {
       for (let y = 5; y < 15; y++) {
-        // Create floor tiles at Z=0 with proper 3D keys
         const floorKey = `${x},${y},0`;
         sampleTiles[floorKey] = {
           uuid: `tile_${x}_${y}_0`,
@@ -302,25 +222,21 @@ export const coreActions = {
           position: [x, y] as const,
           walkable: true,
           visible: true,
-          sprite_name: 'Floor_01',
           z_level: 0,
-          sprite_direction: IsometricDirection.SOUTH,
           tile_type: 'floor',
-          snap_position: 'above', // Default to above positioning
-        };
+        } as TileSummary;
       }
     }
     
     battlemapStore.grid.tiles = sampleTiles;
-    battlemapStore.grid.maxZLevel = 0; // Only floor level now
-    console.log('[battlemapStore] Generated sample isometric tiles:', Object.keys(sampleTiles).length);
+    battlemapStore.grid.maxZLevel = 0;
+    console.log('[battlemapStore] Generated sample tiles:', Object.keys(sampleTiles).length);
   },
 
   // Base value management for ratio lock
   setBaseValues: () => {
     // Capture current values as new base values
     battlemapStore.view.baseGridDiamondWidth = battlemapStore.view.gridDiamondWidth;
-    battlemapStore.view.baseSpriteScale = battlemapStore.view.spriteScale;
     battlemapStore.view.baseZLayerHeights = battlemapStore.view.zLayerHeights.map((layer: { z: number; verticalOffset: number; name: string; color: number }) => ({ ...layer }));
     console.log('[battlemapStore] Base values updated from current values');
   },
@@ -328,15 +244,7 @@ export const coreActions = {
   resetBaseValues: () => {
     // Reset base values to defaults
     battlemapStore.view.baseGridDiamondWidth = 400;
-    battlemapStore.view.baseSpriteScale = 1.0;
     battlemapStore.view.baseZLayerHeights = DEFAULT_Z_LAYER_SETTINGS.map((layer: { z: number; verticalOffset: number; name: string; color: number }) => ({ ...layer }));
     console.log('[battlemapStore] Base values reset to defaults');
-  },
-
-  // Vertical bias computation method
-  setVerticalBiasComputationMode: (mode: VerticalBiasComputationMode) => {
-    battlemapStore.view.verticalBiasComputationMode = mode;
-    console.log(`[battlemapStore] Vertical bias computation mode set to: ${mode}`);
-    // Note: The recalculation logic is now handled in isometricEditor.ts
   },
 };

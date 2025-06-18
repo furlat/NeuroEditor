@@ -11,12 +11,10 @@ import EditIcon from '@mui/icons-material/Edit';
 import EditOffIcon from '@mui/icons-material/EditOff';
 import ImageIcon from '@mui/icons-material/Image';
 import HideImageIcon from '@mui/icons-material/HideImage';
-import { useMapControls, useTileEditor } from '../../../hooks/battlemap';
-import IsometricSpriteSelector from './IsometricSpriteSelector';
+import { useMapControls } from '../../../hooks/battlemap';
 import IsometricConfigurationPanel from './IsometricConfigurationPanel';
 import { battlemapStore } from '../../../store';
 import { useSnapshot } from 'valtio';
-import SettingsButton from '../../settings/SettingsButton';
 import ZLayerSelector from './ZLayerSelector';
 
 /**
@@ -37,11 +35,18 @@ export const CanvasControls: React.FC = () => {
     zoomOut
   } = useMapControls();
   
-  const { 
-    isEditing, 
-    toggleEditing, 
-    toggleEditorVisibility 
-  } = useTileEditor();
+  // Simple editing state - get from store directly
+  const controlsSnap = useSnapshot(battlemapStore.controls);
+  const isEditing = controlsSnap.isEditing;
+  const isEditorVisible = controlsSnap.isEditorVisible;
+  
+  const toggleEditing = () => {
+    battlemapStore.controls.isEditing = !battlemapStore.controls.isEditing;
+  };
+  
+  const toggleEditorVisibility = () => {
+    battlemapStore.controls.isEditorVisible = !battlemapStore.controls.isEditorVisible;
+  };
   
   // PERFORMANCE FIX: Only subscribe to hoveredCell, not the entire view object
   // This avoids re-renders when offset changes during WASD movement
@@ -186,10 +191,6 @@ export const CanvasControls: React.FC = () => {
           🖱️ {formatPosition(hoveredCellSnap.x, hoveredCellSnap.y)}
         </Typography>
 
-        <Divider orientation="vertical" sx={{ borderColor: 'rgba(255,255,255,0.3)', height: 30 }} />
-
-        {/* Settings Button */}
-        <SettingsButton />
       </Paper>
 
       {/* Z-Layer Selector */}
@@ -198,19 +199,9 @@ export const CanvasControls: React.FC = () => {
       {/* Tile Editor Panels */}
       {isEditing && (
         <>
-          {/* Sprite Selector - Left Side */}
-          <Box sx={{ 
-            position: 'absolute', 
-            top: 80,
-            left: 16,
-            zIndex: 1000
-          }}>
-            <IsometricSpriteSelector isLocked={isLocked} />
-          </Box>
-          
           {/* Configuration Panel with Utils - Right Side */}
-          <Box sx={{ 
-            position: 'absolute', 
+          <Box sx={{
+            position: 'absolute',
             top: 80,
             right: 16,
             zIndex: 1000

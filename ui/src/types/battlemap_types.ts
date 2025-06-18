@@ -1,7 +1,6 @@
 import { UUID, SensesType, Position, DeepReadonly, EntitySummary } from './common';
-import { IsometricDirection } from '../game/managers/IsometricSpriteManager';
 
-// Tile related types
+// Simplified tile types - no complex directions or walls
 export interface TileSummary {
   readonly uuid: string;
   readonly name: string;
@@ -9,44 +8,21 @@ export interface TileSummary {
   readonly walkable: boolean;
   readonly visible: boolean;
   readonly sprite_name: string | null;
-  // NEW: Enhanced properties for isometric sprites
   readonly z_level: number; // Z-axis level for multi-layer rendering
-  readonly sprite_direction: IsometricDirection; // Direction for 4-directional sprites
+  readonly sprite_direction: number; // Simple direction 0-3 if needed
   readonly tile_type: 'floor' | 'wall' | 'decoration' | 'custom'; // Semantic type
-  readonly snap_position: 'above' | 'below'; // Whether tile snaps above or below grid (affects vertical offset application)
+  readonly snap_position: 'above' | 'below'; // Whether tile snaps above or below grid
 }
 
-// NEW: Wall system - border-based objects
-export interface WallSummary {
-  readonly uuid: string;
-  readonly name: string;
-  readonly position: Position; // Grid cell position (x, y)
-  readonly z_level: number; // Z-axis level for multi-layer rendering
-  readonly wall_direction: IsometricDirection; // Which border: N/E/S/W
-  readonly sprite_name: string | null;
-  readonly sprite_direction: IsometricDirection; // Sprite facing direction
-  readonly wall_type: 'brick' | 'stone' | 'wood' | 'custom'; // Wall material/type
-  readonly blocks_movement: boolean; // Whether wall blocks movement across border
-  readonly visible: boolean;
-  readonly snap_position: 'above' | 'below'; // Whether wall sprite snaps above or below grid edge (same as blocks)
-}
-
-// NEW: Wall edge positioning for click detection
-export interface WallEdge {
-  readonly gridX: number;
-  readonly gridY: number;
-  readonly edge: IsometricDirection; // N/E/S/W edge of the grid cell
-  readonly centerX: number; // Screen X coordinate of edge center
-  readonly centerY: number; // Screen Y coordinate of edge center
-}
+// REMOVED: Wall system - no longer needed
+// WallSummary, WallEdge interfaces removed as part of cleanup
 
 // Response types
 export interface GridSnapshot {
   readonly width: number;
   readonly height: number;
   readonly tiles: Readonly<Record<string, TileSummary>>;
-  // NEW: Add walls to grid snapshot
-  readonly walls: Readonly<Record<string, WallSummary>>;
+  // REMOVED: walls - no longer needed
 }
 
 // Senses interfaces
@@ -438,77 +414,6 @@ export const DEFAULT_BLOOD_SPLAT_CONFIG: BloodSplatConfig = {
   },
 };
 
-// NEW: Sprite Configuration System Types for JSON persistence
-export interface SpriteBoundingBoxData {
-  readonly originalWidth: number;
-  readonly originalHeight: number; 
-  readonly boundingX: number;
-  readonly boundingY: number;
-  readonly boundingWidth: number;
-  readonly boundingHeight: number;
-  readonly anchorOffsetX: number;  // Normalized anchor offset (0-1)
-  readonly anchorOffsetY: number;  // Normalized anchor offset (0-1)
-}
-
-export interface DirectionalSpriteSettings {
-  // 4-directional invisible margins
-  readonly invisibleMarginUp: number;
-  readonly invisibleMarginDown: number;
-  readonly invisibleMarginLeft: number;
-  readonly invisibleMarginRight: number;
-  
-  // Vertical positioning
-  readonly autoComputedVerticalBias: number;
-  readonly useAutoComputed: boolean;
-  readonly manualVerticalBias: number;
-  
-  // Wall-specific positioning (only for walls)
-  readonly manualHorizontalOffset?: number;
-  readonly manualDiagonalNorthEastOffset?: number;
-  readonly manualDiagonalNorthWestOffset?: number;
-  readonly relativeAlongEdgeOffset?: number;
-  readonly relativeTowardCenterOffset?: number;
-  readonly relativeDiagonalAOffset?: number;
-  readonly relativeDiagonalBOffset?: number;
-  readonly useADivisionForNorthEast?: boolean;
-  readonly useSpriteTrimmingForWalls?: boolean;
-}
-
-export interface SpriteConfiguration {
-  readonly spriteName: string;
-  readonly spriteType: 'block' | 'wall';
-  readonly version: string; // Config version for future compatibility
-  readonly lastModified: string; // ISO timestamp
-  
-  // Shared vs per-direction settings
-  readonly useSharedSettings: boolean; // If true, use sharedSettings for all directions
-  
-  // Shared settings (used when useSharedSettings is true)
-  readonly sharedSettings: DirectionalSpriteSettings;
-  
-  // Per-direction settings (used when useSharedSettings is false)
-  readonly directionalSettings: {
-    readonly [IsometricDirection.NORTH]: DirectionalSpriteSettings;
-    readonly [IsometricDirection.EAST]: DirectionalSpriteSettings;
-    readonly [IsometricDirection.SOUTH]: DirectionalSpriteSettings;
-    readonly [IsometricDirection.WEST]: DirectionalSpriteSettings;
-  };
-  
-  // Sprite bounding box data (computed once, reused always)
-  readonly spriteBoundingBox?: SpriteBoundingBoxData;
-}
-
-export interface SpriteConfigurationManager {
-  // Config management
-  loadConfig(spriteName: string, spriteType: 'block' | 'wall'): Promise<SpriteConfiguration | null>;
-  saveConfig(config: SpriteConfiguration): Promise<boolean>;
-  initializeDefaultConfigs(): Promise<void>;
-  
-  // Config synchronization with store
-  syncConfigToStore(spriteName: string, spriteType: 'block' | 'wall'): Promise<void>;
-  syncStoreToConfig(spriteName: string, spriteType: 'block' | 'wall'): Promise<SpriteConfiguration>;
-  
-  // Utility methods
-  createDefaultConfig(spriteName: string, spriteType: 'block' | 'wall'): SpriteConfiguration;
-  getConfigPath(spriteName: string, spriteType: 'block' | 'wall'): string;
-} 
+// REMOVED: Legacy positioning system type definitions
+// All sprite configuration and positioning types have been replaced
+// by the analysis-based diamond positioning system

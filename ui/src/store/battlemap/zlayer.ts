@@ -1,7 +1,6 @@
 // /store/battlemap/zLayer.ts
 import { battlemapStore, forceRerender } from './core';
 import { TileSummary } from '../../types/battlemap_types';
-import { IsometricDirection } from '../../game/managers/IsometricSpriteManager';
 
 // Local type definitions (exported for re-export from store index)
 export enum LayerVisibilityMode {
@@ -86,8 +85,6 @@ export const zLayerActions = {
     battlemapStore.view.gridLayerVisibility[oldActiveLayer] = false;
     battlemapStore.view.gridLayerVisibility[clampedLayer] = true;
     
-    // Also update the selected Z level for tile placement
-    battlemapStore.controls.isometricEditor.selectedZLevel = clampedLayer;
     console.log(`[battlemapStore] Active Z layer set to: ${clampedLayer} (${DEFAULT_Z_LAYER_SETTINGS[clampedLayer].name}) - FORCING RENDER`);
     forceRerender();
   },

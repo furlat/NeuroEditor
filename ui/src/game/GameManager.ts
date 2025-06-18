@@ -1,16 +1,9 @@
 import { battlemapEngine } from './BattlemapEngine';
-// TEMPORARILY COMMENTED OUT FOR ISOMETRIC TESTING
-// import { GridRenderer } from './renderers/GridRenderer';
+
 import { IsometricGridRenderer } from './renderers/IsometricGridRenderer';
-// import { TileRenderer } from './renderers/TileRenderer';
-import { IsometricTileRenderer } from './renderers/IsometricTileRenderer';
-// import { EntityRenderer } from './renderers/EntityRenderer';
-// import { IsometricEntityRenderer } from './renderers/IsometricEntityRenderer';
-// import { EffectRenderer } from './renderers/EffectRenderer';
-// import { InteractionsManager } from './InteractionsManager';
+
 import { IsometricInteractionsManager } from './IsometricInteractionsManager';
 import { MovementController } from './MapMovementController';
-import { isometricSpriteManager } from './managers/IsometricSpriteManager';
 
 /**
  * GameManager is the main entry point for the isometric tile editor
@@ -20,8 +13,7 @@ export class GameManager {
   // Flag to track initialization
   private isInitialized: boolean = false;
   
-  // Component references - enhanced for isometric sprite editing
-  private tileRenderer: IsometricTileRenderer = new IsometricTileRenderer();
+  // Component references - grid renderer only
   private gridRenderer: IsometricGridRenderer = new IsometricGridRenderer();
   private interactionsManager: IsometricInteractionsManager = new IsometricInteractionsManager();
   private movementController: MovementController = new MovementController();
@@ -45,9 +37,6 @@ export class GameManager {
         throw new Error('Failed to initialize BattlemapEngine');
       }
 
-      // Initialize sprite manager before other components
-      await this.initializeSpriteAssets();
-
       // Initialize all components
       this.initializeComponents();
 
@@ -62,34 +51,17 @@ export class GameManager {
     }
   }
 
-  /**
-   * Initialize sprite assets
-   */
-  private async initializeSpriteAssets(): Promise<void> {
-    try {
-      console.log('[GameManager] Initializing sprite assets...');
-      await isometricSpriteManager.initialize();
-      // Pre-load some sprites for immediate availability
-      await isometricSpriteManager.loadCategory('blocks' as any);
-      console.log('[GameManager] Sprite assets initialized successfully');
-    } catch (error) {
-      console.warn('[GameManager] Failed to initialize sprite assets:', error);
-      // Continue without sprites - renderer will fall back to colored diamonds
-    }
-  }
   
   /**
    * Initialize all game components for isometric tile editing
    */
   private initializeComponents(): void {
-    console.log('[GameManager] Initializing isometric tile editor components...');
+    console.log('[GameManager] Initializing isometric grid renderer...');
     
-    // Initialize renderers
-    this.tileRenderer.initialize(battlemapEngine);
+    // Initialize grid renderer only
     this.gridRenderer.initialize(battlemapEngine);
     
-    // Register renderers with the engine
-    battlemapEngine.registerRenderer('tiles', this.tileRenderer);
+    // Register grid renderer with the engine
     battlemapEngine.registerRenderer('grid', this.gridRenderer);
     
     // Initialize interactions (needs to be after renderers for proper layering)
@@ -103,7 +75,7 @@ export class GameManager {
     // Perform initial render
     battlemapEngine.renderAll();
     
-    console.log(`[GameManager] Initialized ${battlemapEngine.getRendererCount()} isometric tile editor components`);
+    console.log(`[GameManager] Initialized ${battlemapEngine.getRendererCount()} isometric grid components`);
   }
   
   /**
@@ -138,14 +110,10 @@ export class GameManager {
   destroy(): void {
     console.log('[GameManager] Destroying isometric tile editor...');
     
-    // Destroy sprite manager
-    isometricSpriteManager.destroy();
-    
     // Destroy components in reverse order
     this.movementController.destroy();
     this.interactionsManager.destroy();
     this.gridRenderer.destroy();
-    this.tileRenderer.destroy();
     
     // Destroy the engine last
     battlemapEngine.destroy();
